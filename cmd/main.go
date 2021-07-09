@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/lukjok/gipcfuzz/config"
 	"github.com/urfave/cli/v2"
 )
 
@@ -19,16 +20,17 @@ func main() {
 		UsageText: "gipcfuzz [options] [arguments]",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:    "arg",
-				Aliases: []string{"a"},
-				Value:   "Test",
-				Usage:   "Sample argument",
+				Name:    "cfg",
+				Aliases: []string{"c"},
+				Value:   "C:\\config.json",
+				Usage:   "Path to the configuration file",
 			},
 		},
 		Action: func(c *cli.Context) error {
-			fmt.Printf("%#v\n", c.String("arg"))
-			if c.Bool("infinite") {
-				c.App.Run([]string{})
+			cfgPath := c.String("cfg")
+			if len(cfgPath) > 0 {
+				config := config.ParseConfigurationFile(cfgPath)
+				fmt.Printf("%#v\n", config.ProcessName)
 			}
 			return nil
 		},
