@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/lukjok/gipcfuzz/communication"
 	"github.com/lukjok/gipcfuzz/config"
 	"github.com/urfave/cli/v2"
 )
@@ -22,7 +23,7 @@ func main() {
 			&cli.StringFlag{
 				Name:    "cfg",
 				Aliases: []string{"c"},
-				Value:   "C:\\config.json",
+				Value:   "C:\\Users\\lukas\\Downloads\\gIPCFuzz\\gIPCFuzz\\config.json",
 				Usage:   "Path to the configuration file",
 			},
 		},
@@ -30,7 +31,16 @@ func main() {
 			cfgPath := c.String("cfg")
 			if len(cfgPath) > 0 {
 				config := config.ParseConfigurationFile(cfgPath)
-				fmt.Printf("%#v\n", config.ProcessName)
+				log.Println("Starting gIPCFuzz...")
+
+				endpoint := fmt.Sprintf("%s:%d", config.Host, config.Port)
+				method := "{\"name\": \"gipcfuzz\"}"
+				protoFiles := []string{"C:\\Users\\lukas\\Downloads\\grpc-go-course-master\\hello\\helloclient\\hellopb\\hello.proto"}
+				importPath := []string{"C:\\Users\\lukas\\Downloads\\grpc-go-course-master\\hello\\helloclient\\hellopb"}
+				ret := communication.SendRequest(endpoint, "hello.helloService/Hello", &method, protoFiles, importPath)
+				if ret {
+					log.Println("Sent the request!")
+				}
 			}
 			return nil
 		},
