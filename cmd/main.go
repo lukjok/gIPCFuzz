@@ -8,6 +8,7 @@ import (
 
 	"github.com/lukjok/gipcfuzz/communication"
 	"github.com/lukjok/gipcfuzz/config"
+	"github.com/lukjok/gipcfuzz/packet"
 	"github.com/urfave/cli/v2"
 )
 
@@ -28,19 +29,22 @@ func main() {
 			},
 		},
 		Action: func(c *cli.Context) error {
+			packet.ParsePacketSource("C:\\Users\\lukas\\Desktop\\go_grpc.pcapng")
+
 			cfgPath := c.String("cfg")
-			if len(cfgPath) > 0 {
+			if len(cfgPath) == 0 {
 				config := config.ParseConfigurationFile(cfgPath)
 				log.Println("Starting gIPCFuzz...")
 
 				endpoint := fmt.Sprintf("%s:%d", config.Host, config.Port)
-				method := "{\"name\": \"gipcfuzz\"}"
+				method := "0a064a6572656d79"
 				protoFiles := []string{"C:\\Users\\lukas\\Downloads\\grpc-go-course-master\\hello\\helloclient\\hellopb\\hello.proto"}
 				importPath := []string{"C:\\Users\\lukas\\Downloads\\grpc-go-course-master\\hello\\helloclient\\hellopb"}
 				ret := communication.SendRequest(endpoint, "hello.helloService/Hello", &method, protoFiles, importPath)
 				if ret {
 					log.Println("Sent the request!")
 				}
+
 			}
 			return nil
 		},

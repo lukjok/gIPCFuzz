@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -118,11 +119,53 @@ func (f *textRequestParser) Next(m proto.Message) error {
 	}
 
 	f.requestCount++
-
 	return proto.UnmarshalText(string(b), m)
 }
 
 func (f *textRequestParser) NumRequests() int {
+	return f.requestCount
+}
+
+type rawRequestParser struct {
+	r            *bufio.Reader
+	err          error
+	requestCount int
+}
+
+// NewRawRequestParser returns a RequestParser that reads data in the raw bytes
+// format from the given reader.
+//
+// Empty text is a valid text format and represents an empty message. So if the
+// given reader has no data, the returned parser will yield an empty message
+// for the first call to Next and then return io.EOF thereafter.
+func NewRawRequestParser(in io.Reader) RequestParser {
+	return &rawRequestParser{r: bufio.NewReader(in)}
+}
+
+func (f *rawRequestParser) Next(m proto.Message) error {
+	if f.err != nil {
+		return f.err
+	}
+
+	var s string
+	s, f.err = f.r.ReadString(textSeparatorChar)
+	if f.err != nil && f.err != io.EOF {
+		return f.err
+	}
+
+	var b []byte
+	b, f.err = hex.DecodeString(s)
+	if f.err != nil {
+		return f.err
+	}
+
+	f.requestCount++
+	f.err = io.EOF
+
+	return proto.Unmarshal(b, m)
+}
+
+func (f *rawRequestParser) NumRequests() int {
 	return f.requestCount
 }
 
@@ -197,11 +240,48 @@ func (tf *textFormatter) format(m proto.Message) (string, error) {
 	return str, nil
 }
 
+// NewRawFormatter returns a formatter that returns strings in the raw
+// hex format. If includeSeparator is true then, when invoked to format
+// multiple messages, all messages after the first one will be prefixed with the
+// ASCII 'Record Separator' character (0x1E).
+func NewRawFormatter(includeSeparator bool) Formatter {
+	tf := rawFormatter{useSeparator: includeSeparator}
+	return tf.format
+}
+
+type rawFormatter struct {
+	useSeparator bool
+	numFormatted int
+}
+
+func (tf *rawFormatter) format(m proto.Message) (string, error) {
+	var buf bytes.Buffer
+	if tf.useSeparator && tf.numFormatted > 0 {
+		if err := buf.WriteByte(textSeparatorChar); err != nil {
+			return "", err
+		}
+	}
+
+	tmpBuf, err := proto.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+
+	buf.Write(tmpBuf)
+
+	// no trailing newline needed
+	str := hex.EncodeToString(buf.Bytes())
+	tf.numFormatted++
+
+	return str, nil
+}
+
 type Format string
 
 const (
 	FormatJSON = Format("json")
 	FormatText = Format("text")
+	FormatRaw  = Format("raw")
 )
 
 // AnyResolverFromDescriptorSource returns an AnyResolver that will search for
@@ -387,6 +467,8 @@ func RequestParserAndFormatter(format Format, descSource DescriptorSource, in io
 		return NewJSONRequestParserWithUnmarshaler(in, unmarshaler), NewJSONFormatter(opts.EmitJSONDefaultFields, anyResolverWithFallback{AnyResolver: resolver}), nil
 	case FormatText:
 		return NewTextRequestParser(in), NewTextFormatter(opts.IncludeTextSeparator), nil
+	case FormatRaw:
+		return NewRawRequestParser(in), NewRawFormatter(opts.IncludeTextSeparator), nil
 	default:
 		return nil, nil, fmt.Errorf("unknown format: %s", format)
 	}

@@ -159,7 +159,7 @@ func SendRequest(endpoint string, method string, data *string, protoFiles []stri
 		IncludeTextSeparator:  true,
 		AllowUnknownFields:    false,
 	}
-	rf, formatter, err := RequestParserAndFormatter(Format("json"), descSource, in, options)
+	rf, formatter, err := RequestParserAndFormatter(FormatRaw, descSource, in, options)
 	if err != nil {
 		log.Fatal(err, "Failed to construct request parser and formatter for %q", "JSON")
 	}
