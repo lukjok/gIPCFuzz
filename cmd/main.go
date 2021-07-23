@@ -24,13 +24,15 @@ func main() {
 			&cli.StringFlag{
 				Name:    "cfg",
 				Aliases: []string{"c"},
-				Value:   "C:\\Users\\lukas\\Downloads\\gIPCFuzz\\gIPCFuzz\\config.json",
+				Value:   "..\\config.json",
 				Usage:   "Path to the configuration file",
 			},
 		},
 		Action: func(c *cli.Context) error {
-			packet.ParsePacketSource("C:\\Users\\lukas\\Desktop\\go_grpc.pcapng")
-
+			msgs := packet.GetParsedMessages("C:\\Users\\lukas\\Documents\\gIRPCStuff\\tp_grpc_traffic.pcapng",
+				"C:\\Users\\lukas\\Documents\\gIRPCStuff\\HelloProtos",
+				"C:\\Users\\lukas\\Documents\\gIRPCStuff\\HelloProtos\\Includes")
+			log.Print(msgs)
 			cfgPath := c.String("cfg")
 			if len(cfgPath) == 0 {
 				config := config.ParseConfigurationFile(cfgPath)
