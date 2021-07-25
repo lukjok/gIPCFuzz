@@ -38,7 +38,7 @@ var (
 	reflHeaders    []string
 )
 
-func SendRequest(endpoint string, method string, data *string, protoFiles []string, importPath []string) bool {
+func SendRequest(request GIPCRequest) bool {
 	isPlainHelper := bool(true)
 	plaintext = &isPlainHelper
 
@@ -49,8 +49,8 @@ func SendRequest(endpoint string, method string, data *string, protoFiles []stri
 	serverName = &emptyStringHelper
 	authority = &emptyStringHelper
 
-	target = endpoint
-	symbol = method
+	target = request.Endpoint
+	symbol = request.Path
 
 	var cc *grpc.ClientConn
 	var descSource DescriptorSource
@@ -121,9 +121,9 @@ func SendRequest(endpoint string, method string, data *string, protoFiles []stri
 		return cc
 	}
 
-	if len(protoFiles) > 0 {
+	if len(request.ProtoPath) > 0 {
 		var err error
-		fileSource, err = DescriptorSourceFromProtoFiles(importPath, protoFiles...)
+		fileSource, err = DescriptorSourceFromProtoFiles(request.ProtoIncludesPath, request.ProtoPath...)
 		if err != nil {
 			log.Fatal(err, "Failed to process proto source files.")
 		}
@@ -151,8 +151,7 @@ func SendRequest(endpoint string, method string, data *string, protoFiles []stri
 	if cc == nil {
 		cc = dial()
 	}
-	var in io.Reader
-	in = strings.NewReader(*data)
+	var in io.Reader = strings.NewReader(*request.Data)
 
 	options := FormatOptions{
 		EmitJSONDefaultFields: false,

@@ -39,10 +39,17 @@ func main() {
 				log.Println("Starting gIPCFuzz...")
 
 				endpoint := fmt.Sprintf("%s:%d", config.Host, config.Port)
-				method := "0a064a6572656d79"
+				data := "0a064a6572656d79"
 				protoFiles := []string{"C:\\Users\\lukas\\Downloads\\grpc-go-course-master\\hello\\helloclient\\hellopb\\hello.proto"}
 				importPath := []string{"C:\\Users\\lukas\\Downloads\\grpc-go-course-master\\hello\\helloclient\\hellopb"}
-				ret := communication.SendRequest(endpoint, "hello.helloService/Hello", &method, protoFiles, importPath)
+				req := communication.GIPCRequest{
+					Endpoint:          endpoint,
+					Path:              "hello.helloService/Hello",
+					Data:              &data,
+					ProtoPath:         protoFiles,
+					ProtoIncludesPath: importPath,
+				}
+				ret := communication.SendRequest(req)
 				if ret {
 					log.Println("Sent the request!")
 				}
