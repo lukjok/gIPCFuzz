@@ -6,12 +6,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +23,7 @@ import (
 	"github.com/google/gopacket/tcpassembly/tcpreader"
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
+	"github.com/lukjok/gipcfuzz/util"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 )
@@ -38,7 +38,7 @@ type httpStream struct {
 }
 
 var pathMsgsCount int32 = 0
-var pathMsgs []ProtoMsg = make([]ProtoMsg, 5, 10)
+var pathMsgs []ProtoByteMsg = make([]ProtoByteMsg, 0, 10)
 var streamPath = map[string]map[uint32]string{}
 var protoDescriptors []*desc.FileDescriptor
 var pathLock sync.RWMutex
@@ -53,35 +53,10 @@ func (h *httpStreamFactory) New(net, transport gopacket.Flow) tcpassembly.Stream
 	return &hstream.r
 }
 
-func getFilesInDirectory(fileDir string, ignoreDirs []string) []string {
-	var files []string
-
-	err := filepath.Walk(fileDir, func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() {
-			dir := filepath.Base(path)
-			for _, d := range ignoreDirs {
-				if d == dir {
-					return filepath.SkipDir
-				}
-			}
-			baseDir := filepath.Base(fileDir)
-			if baseDir == dir {
-				return nil
-			}
-		}
-		files = append(files, info.Name())
-		return nil
-	})
-	if err != nil {
-		log.Fatalln("Failed to enumerate files in the specified directory!")
-	}
-
-	return files
-}
-
-func GetParsedMessages(path string, protoPath string, protoIncludePath string) []ProtoMsg {
-	LoadProtoDescriptions(getFilesInDirectory(protoPath, []string{"Includes"}),
-		[]string{protoIncludePath, protoPath})
+func GetParsedMessages(path string, protoPath string, protoIncludePath []string) []ProtoByteMsg {
+	LoadProtoDescriptions(
+		util.GetFileNamesInDirectory(protoPath, []string{"Includes"}),
+		append(protoIncludePath, protoPath))
 	ProcessPacketSource(path)
 	return pathMsgs
 }
@@ -206,7 +181,7 @@ func (h *httpStream) run() {
 			}
 
 			pathLock.RUnlock()
-			if msg, err := ParseFrame(net, path, frame, streamSide[id]); err == nil {
+			if msg, err := ParseFrameToByteMsg(net, path, frame, streamSide[id]); err == nil {
 				pathMsgs = append(pathMsgs, msg)
 				pathMsgsCount++
 			}
@@ -215,10 +190,65 @@ func (h *httpStream) run() {
 	}
 }
 
+func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side int) (ProtoByteMsg, error) {
+	buf := frame.Data()
+	id := frame.Header().StreamID
+	compress := buf[0]
+
+	if side != 1 {
+		return ProtoByteMsg{
+			Path:    path,
+			Type:    MessageType(side),
+			Message: nil,
+		}, &proto.ParseError{}
+	}
+
+	if compress == 1 {
+		// use compression, check Message-Encoding later
+		log.Printf("%s %d use compression, msg %q", net, id, buf[5:])
+		return ProtoByteMsg{
+			Path:    path,
+			Type:    MessageType(side),
+			Message: nil,
+		}, &proto.ParseError{}
+	}
+
+	if len(protoDescriptors) > 0 {
+		for _, dscr := range protoDescriptors {
+			oldPath := strings.Replace(path[1:], "/", ".", 1)
+			sym := dscr.FindSymbol(oldPath)
+			if sym != nil {
+				encMsg := hex.EncodeToString(buf[5:])
+				return ProtoByteMsg{
+					Path:    path[1:],
+					Type:    MessageType(side),
+					Message: &encMsg,
+				}, nil
+			} else {
+				continue
+			}
+		}
+	}
+
+	return ProtoByteMsg{
+		Path:    path,
+		Type:    MessageType(side),
+		Message: nil,
+	}, &proto.ParseError{}
+}
+
 func ParseFrame(net string, path string, frame *http2.DataFrame, side int) (ProtoMsg, error) {
 	buf := frame.Data()
 	id := frame.Header().StreamID
 	compress := buf[0]
+
+	if side != 1 {
+		return ProtoMsg{
+			Path:    path,
+			Type:    MessageType(side),
+			Message: nil,
+		}, &proto.ParseError{}
+	}
 
 	if compress == 1 {
 		// use compression, check Message-Encoding later
@@ -239,7 +269,7 @@ func ParseFrame(net string, path string, frame *http2.DataFrame, side int) (Prot
 				if err := proto.Unmarshal(buf[5:], msg); err == nil {
 					log.Printf("%s %d %s %s", net, id, path, msg)
 					return ProtoMsg{
-						Path:    path,
+						Path:    path[1:],
 						Type:    MessageType(side),
 						Message: msg,
 					}, nil

@@ -5,13 +5,19 @@ import "github.com/golang/protobuf/proto"
 type MessageType int
 
 const (
-	Request MessageType = iota
+	Unknown MessageType = iota
+	Request
 	Response
-	Unknown
 )
 
 type ProtoMsg struct {
 	Path    string
 	Type    MessageType
 	Message proto.Message
+}
+
+type ProtoByteMsg struct {
+	Path    string
+	Type    MessageType
+	Message *string
 }

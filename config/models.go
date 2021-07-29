@@ -7,4 +7,7 @@ type Configuration struct {
 	Port                   int32    `json:"port"`
 	SSL                    bool     `json:"ssl"`
 	Modules                []string `json:"modules"`
+	ProtoFilesPath         string   `json:"protoFilesPath"`
+	ProtoFilesIncludePath  []string `json:"protoFilesIncludePath"`
+	PcapFilePath           string   `json:"pcapFilePath"`
 }

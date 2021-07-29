@@ -169,8 +169,44 @@ func (f *rawRequestParser) NumRequests() int {
 	return f.requestCount
 }
 
+type protoMessageRequestParser struct {
+	r            *proto.Message
+	err          error
+	requestCount int
+}
+
+// NewRawRequestParser returns a RequestParser that reads data in the raw bytes
+// format from the given reader.
+//
+// Empty text is a valid text format and represents an empty message. So if the
+// given reader has no data, the returned parser will yield an empty message
+// for the first call to Next and then return io.EOF thereafter.
+func NewProtoMessageRequestParser(in proto.Message) RequestParser {
+	return &protoMessageRequestParser{r: &in}
+}
+
+func (f *protoMessageRequestParser) Next(m proto.Message) error {
+	if f.err != nil {
+		return f.err
+	}
+	fmt.Println(*f.r)
+	f.requestCount++
+	m.Reset()
+	m = proto.Clone(*f.r)
+	//m = *f.r
+	fmt.Println(m)
+	return io.EOF
+}
+
+func (f *protoMessageRequestParser) NumRequests() int {
+	return f.requestCount
+}
+
 // Formatter translates messages into string representations.
 type Formatter func(proto.Message) (string, error)
+
+// Formatter translates messages into string representations.
+type ProtoMessageFormatter func(proto.Message) (proto.Message, error)
 
 // NewJSONFormatter returns a formatter that returns JSON strings. The JSON will
 // include empty/default values (instead of just omitted them) if emitDefaults
@@ -276,12 +312,27 @@ func (tf *rawFormatter) format(m proto.Message) (string, error) {
 	return str, nil
 }
 
+func NewProtoMessageFormatter() ProtoMessageFormatter {
+	tf := protoMessageFormatter{}
+	return tf.format
+}
+
+type protoMessageFormatter struct {
+	numFormatted int
+}
+
+func (tf *protoMessageFormatter) format(m proto.Message) (proto.Message, error) {
+	tf.numFormatted++
+	return m, nil
+}
+
 type Format string
 
 const (
-	FormatJSON = Format("json")
-	FormatText = Format("text")
-	FormatRaw  = Format("raw")
+	FormatJSON   = Format("json")
+	FormatText   = Format("text")
+	FormatRaw    = Format("raw")
+	FormatHybrid = Format("hybrid")
 )
 
 // AnyResolverFromDescriptorSource returns an AnyResolver that will search for
@@ -474,6 +525,10 @@ func RequestParserAndFormatter(format Format, descSource DescriptorSource, in io
 	}
 }
 
+func ProtoMessageRequestParserAndFormatter(in io.Reader) (RequestParser, ProtoMessageFormatter, error) {
+	return NewRawRequestParser(in), NewProtoMessageFormatter(), nil
+}
+
 // RequestParserAndFormatterFor returns a request parser and formatter for the
 // given format. The given descriptor source may be used for parsing message
 // data (if needed by the format). The flags emitJSONDefaultFields and
@@ -565,6 +620,56 @@ func (h *DefaultEventHandler) OnReceiveResponse(resp proto.Message) {
 }
 
 func (h *DefaultEventHandler) OnReceiveTrailers(stat *status.Status, md metadata.MD) {
+	h.Status = stat
+	if h.VerbosityLevel > 0 {
+		fmt.Fprintf(h.Out, "\nResponse trailers received:\n%s\n", MetadataToString(md))
+	}
+}
+
+type ProtoMessageEventHandler struct {
+	Response *proto.Message
+	Out      io.Writer
+	// 0 = default
+	// 1 = verbose
+	// 2 = very verbose
+	VerbosityLevel int
+	// NumResponses is the number of responses that have been received.
+	NumResponses int
+	// Status is the status that was received at the end of an RPC. It is
+	// nil if the RPC is still in progress.
+	Status *status.Status
+}
+
+func (h *ProtoMessageEventHandler) OnResolveMethod(md *desc.MethodDescriptor) {
+	if h.VerbosityLevel > 0 {
+		txt, err := GetDescriptorText(md, nil)
+		if err == nil {
+			fmt.Fprintf(h.Out, "\nResolved method descriptor:\n%s\n", txt)
+		}
+	}
+}
+
+func (h *ProtoMessageEventHandler) OnSendHeaders(md metadata.MD) {
+	if h.VerbosityLevel > 0 {
+		fmt.Fprintf(h.Out, "\nRequest metadata to send:\n%s\n", MetadataToString(md))
+	}
+}
+
+func (h *ProtoMessageEventHandler) OnReceiveHeaders(md metadata.MD) {
+	if h.VerbosityLevel > 0 {
+		fmt.Fprintf(h.Out, "\nResponse headers received:\n%s\n", MetadataToString(md))
+	}
+}
+
+func (h *ProtoMessageEventHandler) OnReceiveResponse(resp proto.Message) {
+	h.NumResponses++
+	if h.VerbosityLevel > 1 {
+		fmt.Fprintf(h.Out, "\nEstimated response size: %d bytes\n", proto.Size(resp))
+	}
+	h.Response = &resp
+}
+
+func (h *ProtoMessageEventHandler) OnReceiveTrailers(stat *status.Status, md metadata.MD) {
 	h.Status = stat
 	if h.VerbosityLevel > 0 {
 		fmt.Fprintf(h.Out, "\nResponse trailers received:\n%s\n", MetadataToString(md))

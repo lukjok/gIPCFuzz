@@ -169,6 +169,7 @@ func invokeUnary(ctx context.Context, stub grpcdynamic.Stub, md *desc.MethodDesc
 		}
 	}
 
+	fmt.Println(req)
 	// Now we can actually invoke the RPC!
 	var respHeaders metadata.MD
 	var respTrailers metadata.MD
