@@ -2,8 +2,11 @@ package util
 
 import (
 	"log"
+	"net"
 	"os"
 	"path/filepath"
+
+	"github.com/lukjok/gipcfuzz/models"
 )
 
 func GetFileNamesInDirectory(fileDir string, ignoreDirs []string) []string {
@@ -56,4 +59,15 @@ func GetFileFullPathInDirectory(fileDir string, ignoreDirs []string) []string {
 	}
 
 	return files
+}
+
+func ConvertError(err error) models.GIPCFuzzError {
+	switch err.(type) {
+	case nil:
+		return models.Success
+	case *net.OpError:
+		return models.NetworkError
+	default:
+		return models.UnknownError
+	}
 }

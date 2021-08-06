@@ -1,7 +1,8 @@
 package config
 
 type Configuration struct {
-	ProcessName            string   `json:"processName"`
+	PathToExecutable       string   `json:"pathToExecutable"`
+	ExecutableArguments    []string `json:"executableArgs"`
 	HandlerFunctionAddress uint     `json:"handlerFunctionAddress"`
 	Host                   string   `json:"host"`
 	Port                   int32    `json:"port"`

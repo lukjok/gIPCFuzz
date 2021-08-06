@@ -8,6 +8,7 @@ import (
 
 	"github.com/lukjok/gipcfuzz/config"
 	"github.com/lukjok/gipcfuzz/loop"
+	"github.com/lukjok/gipcfuzz/models"
 	"github.com/urfave/cli/v2"
 )
 
@@ -33,11 +34,14 @@ func main() {
 				config := config.ParseConfigurationFile(cfgPath)
 
 				log.Println("Starting gIPCFuzz...")
-				loopData := loop.LoopData{
+				ctxData := models.ContextData{
 					Settings: config,
 				}
-				ctx := context.WithValue(context.Background(), "data", loopData)
-				loop.Run(ctx)
+				ctx := context.WithValue(context.Background(), "data", ctxData)
+				looper := loop.Loop{
+					Context: ctx,
+				}
+				looper.Run()
 			}
 			return nil
 		},
