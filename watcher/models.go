@@ -36,3 +36,10 @@ type StartProcessResponse struct {
 	Error  error
 	Output string
 }
+
+func NewStartProcessResponse(e error, output string) *StartProcessResponse {
+	return &StartProcessResponse{
+		Error:  e,
+		Output: output,
+	}
+}

@@ -1,7 +1,7 @@
 package output
 
 type CrashOutput struct {
-	IterationNo      int32    `json:"IterationNo"`
+	IterationNo      int      `json:"IterationNo"`
 	MethodPath       string   `json:"methodPath"`
 	ExecutableOutput string   `json:"executableOutput"`
 	ExecutableEvents []string `json:"executableEvents"`
@@ -9,6 +9,6 @@ type CrashOutput struct {
 }
 
 type IterationProgress struct {
-	CurrentIteration int32  `json:"currentIteration"`
+	CurrentIteration int    `json:"currentIteration"`
 	CurrentMessage   string `json:"currentMessage"`
 }

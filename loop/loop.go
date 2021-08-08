@@ -6,7 +6,9 @@ import (
 	"log"
 
 	"github.com/lukjok/gipcfuzz/communication"
+	"github.com/lukjok/gipcfuzz/events"
 	"github.com/lukjok/gipcfuzz/models"
+	"github.com/lukjok/gipcfuzz/output"
 	"github.com/lukjok/gipcfuzz/packet"
 	"github.com/lukjok/gipcfuzz/util"
 	"github.com/lukjok/gipcfuzz/watcher"
@@ -19,13 +21,19 @@ type LoopManager interface {
 }
 
 type Loop struct {
-	Context  context.Context
-	Messages []packet.ProtoByteMsg
+	Context        context.Context
+	Messages       []packet.ProtoByteMsg
+	Output         *output.Filesystem
+	Events         *events.Events
+	IterationNo    int
+	CurrentMessage *packet.ProtoByteMsg
 }
 
 func (l *Loop) Run() {
 	l.initializeLoop()
-	for _, message := range l.Messages {
+	for idx, message := range l.Messages {
+		l.IterationNo = idx + 1
+		l.CurrentMessage = &message
 		resp, err := runIteration(l.Context, message.Path, message.Message)
 		handleIterationErr(l.Context, err)
 		if err == nil {
@@ -60,37 +68,46 @@ func (l *Loop) initializeLoop() {
 		loopData.Settings.PcapFilePath,
 		loopData.Settings.ProtoFilesPath,
 		loopData.Settings.ProtoFilesIncludePath)
-	go handleProcessStart(l.Context)
+	if err := l.Events.NewEventManager(events.DefaultWindowsQuery); err != nil {
+		log.Printf("Error occured while creating EventManager: %s", err)
+	}
+	l.Events.StartCapture()
+	go l.handleProcessStart(l.Context)
 }
 
-func handleProcessStart(ctx context.Context) {
-	startProgStatus := make(chan watcher.StartProcessResponse)
+func (l *Loop) handleProcessStart(ctx context.Context) {
+	startProgStatus := make(chan *watcher.StartProcessResponse)
 	if !watcher.IsProcessRunning(ctx) {
 		go watcher.StartProcess(ctx, startProgStatus)
-		// select {
-		// case response := <-startProgStatus:
-		// 	if response.Error != nil {
-		// 		log.Printf("Error occurred while starting the process: %s", response.Error)
-		// 		break
-		// 	}
-		// 	fmt.Print(response.Output)
-		// 	break
-		// default:
-		// 	log.Println("Channel default case")
-		// }
 		for done := false; !done; {
 			select {
 			case response := <-startProgStatus:
-				if response.Error != nil {
+				if response != nil && response.Error != nil {
 					log.Printf("Error occurred while starting the process: %s", response.Error)
-					break
+					done = true
 				}
-				fmt.Print(response.Output)
-				break
+				if response != nil && response.Error == nil {
+					fmt.Print(response.Output)
+					l.writeIterationCrash(response.Output)
+					done = true
+				}
 			default:
-				log.Println("Channel default case")
 			}
 		}
+	}
+}
+
+func (l *Loop) writeIterationCrash(out string) {
+	events := l.Events.GetEventData()
+	crashOutput := output.CrashOutput{
+		IterationNo:      l.IterationNo,
+		MethodPath:       l.CurrentMessage.Path,
+		ExecutableOutput: out,
+		ExecutableEvents: events,
+		MemoryDumpPath:   "",
+	}
+	if err := l.Output.SaveCrash(&crashOutput); err != nil {
+		log.Printf("Failed to write iteration crash dump with error: %s", err)
 	}
 }
 

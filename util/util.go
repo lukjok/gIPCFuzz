@@ -13,6 +13,9 @@ func GetFileNamesInDirectory(fileDir string, ignoreDirs []string) []string {
 	var files []string
 
 	err := filepath.Walk(fileDir, func(path string, info os.FileInfo, err error) error {
+		if info == nil {
+			return nil
+		}
 		if info.IsDir() {
 			dir := filepath.Base(path)
 			for _, d := range ignoreDirs {
@@ -59,6 +62,16 @@ func GetFileFullPathInDirectory(fileDir string, ignoreDirs []string) []string {
 	}
 
 	return files
+}
+
+func DirectoryExists(path string) bool {
+	if pathAbs, err := filepath.Abs(path); err != nil {
+		return false
+	} else if fileInfo, err := os.Stat(pathAbs); os.IsNotExist(err) || !fileInfo.IsDir() {
+		return false
+	}
+
+	return true
 }
 
 func ConvertError(err error) models.GIPCFuzzError {

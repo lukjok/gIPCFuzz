@@ -27,7 +27,7 @@ func IsProcessRunning(ctx context.Context) bool {
 	return true
 }
 
-func StartProcess(ctx context.Context, status chan StartProcessResponse) {
+func StartProcess(ctx context.Context, status chan *StartProcessResponse) {
 	ctxData := ctx.Value("data").(models.ContextData)
 	execPath := filepath.Dir(ctxData.Settings.PathToExecutable)
 
@@ -35,36 +35,18 @@ func StartProcess(ctx context.Context, status chan StartProcessResponse) {
 	cmd.Dir = execPath
 	stderr, _ := cmd.StderrPipe()
 	if err := cmd.Start(); err != nil {
-		status <- StartProcessResponse{
-			Error:  err,
-			Output: "",
-		}
+		status <- NewStartProcessResponse(err, "")
 		return
 	}
 
-	// scanner := bufio.NewScanner(stderr)
-	// scanner.Split(bufio.ScanLines)
-	// scanner.Text()
-	// for scanner.Scan() {
-	// 	m := scanner.Text()
-	// 	fmt.Println(m)
-	// }
 	buf := new(strings.Builder)
 	if _, err := io.Copy(buf, stderr); err != nil {
-		status <- StartProcessResponse{
-			Error:  err,
-			Output: "",
-		}
-		log.Print
+		status <- NewStartProcessResponse(err, "")
 		return
 	}
 
 	cmd.Wait()
-
-	status <- StartProcessResponse{
-		Error:  nil,
-		Output: buf.String(),
-	}
+	status <- NewStartProcessResponse(nil, buf.String())
 }
 
 func getProcessByName(executableName string) (*os.Process, error) {

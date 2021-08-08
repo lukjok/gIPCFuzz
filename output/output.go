@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
-	"path"
+	"path/filepath"
+	"strings"
 	"sync"
+
+	"github.com/lukjok/gipcfuzz/util"
 )
 
 const (
@@ -25,6 +29,7 @@ type Filesystem struct {
 }
 
 func NewFilesystem(baseDir string) *Filesystem {
+	createBaseDirectoriesIfNotExists(baseDir)
 	return &Filesystem{
 		OutputBaseDir: baseDir,
 	}
@@ -36,8 +41,9 @@ func (f *Filesystem) SaveCrash(data *CrashOutput) error {
 		return err
 	}
 
-	fFileName := fmt.Sprintf("%d_%s.json", data.IterationNo, data.MethodPath)
-	return save(mData, path.Join(f.OutputBaseDir, CrashDirName, fFileName))
+	pathNoSuffix := strings.Replace(data.MethodPath, "/", "_", 1)
+	fFileName := fmt.Sprintf("%d_%s.json", data.IterationNo, pathNoSuffix)
+	return save(mData, filepath.Join(f.OutputBaseDir, CrashDirName, fFileName))
 }
 
 func (f *Filesystem) SaveProgress(data *IterationProgress) error {
@@ -49,9 +55,25 @@ func (f *Filesystem) SaveProgress(data *IterationProgress) error {
 		return err
 	}
 
-	return save(mData, path.Join(f.OutputBaseDir, ProgressFileName))
+	return save(mData, filepath.Join(f.OutputBaseDir, ProgressFileName))
 }
 
 func save(data []byte, path string) error {
 	return os.WriteFile(path, data, fs.FileMode(os.O_RDWR))
+}
+
+func createBaseDirectoriesIfNotExists(baseDir string) {
+	if util.DirectoryExists(baseDir) && util.DirectoryExists(filepath.Join(baseDir, CrashDirName)) {
+		return
+	}
+
+	if err := os.Mkdir(baseDir, fs.FileMode(os.O_RDWR)); err != nil {
+		log.Printf("Error while creating base output directory: %s", err)
+		return
+	}
+
+	if err := os.Mkdir(filepath.Join(baseDir, CrashDirName), fs.FileMode(os.O_RDWR)); err != nil {
+		log.Printf("Error while creating crash output directory: %s", err)
+		return
+	}
 }
