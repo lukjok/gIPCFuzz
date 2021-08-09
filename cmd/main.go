@@ -42,7 +42,7 @@ func main() {
 				ctx := context.WithValue(context.Background(), "data", ctxData)
 				looper := loop.Loop{
 					Context: ctx,
-					Output:  output.NewFilesystem("C:\\gIPCFuzz\\Output"),
+					Output:  output.NewFilesystem("C:\\Source\\Output"),
 					Events:  &events.Events{},
 				}
 				looper.Run()

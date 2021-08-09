@@ -7,7 +7,7 @@ type GIPCFuzzError int
 const (
 	Success GIPCFuzzError = iota
 	NetworkError
-	RequestError
+	GRPCError
 	UnknownError
 )
 

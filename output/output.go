@@ -59,7 +59,7 @@ func (f *Filesystem) SaveProgress(data *IterationProgress) error {
 }
 
 func save(data []byte, path string) error {
-	return os.WriteFile(path, data, fs.FileMode(os.O_RDWR))
+	return os.WriteFile(path, data, 0600)
 }
 
 func createBaseDirectoriesIfNotExists(baseDir string) {

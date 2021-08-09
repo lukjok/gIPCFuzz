@@ -31,6 +31,7 @@ func StartProcess(ctx context.Context, status chan *StartProcessResponse) {
 	ctxData := ctx.Value("data").(models.ContextData)
 	execPath := filepath.Dir(ctxData.Settings.PathToExecutable)
 
+	log.Printf("Starting process %s", execPath)
 	cmd := exec.Command(ctxData.Settings.PathToExecutable, ctxData.Settings.ExecutableArguments...)
 	cmd.Dir = execPath
 	stderr, _ := cmd.StderrPipe()

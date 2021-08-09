@@ -184,8 +184,8 @@ func SendRequestWithMessage(request GIPCRequest) (proto.Message, error) {
 	}
 
 	if h.Status.Code() != codes.OK {
-		log.Println(h.Status, "Got status code: ")
-		return nil, err
+		log.Println(&h.Status, "Got status code: ")
+		return nil, h.Status.Err()
 	}
 
 	return *h.Response, nil

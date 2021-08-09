@@ -10,6 +10,6 @@ require (
 	github.com/ofcoursedude/gowinlog v1.0.4 // indirect
 	github.com/urfave/cli/v2 v2.3.0
 	golang.org/x/net v0.0.0-20200822124328-c89045814202
-	google.golang.org/grpc v1.39.0
+	google.golang.org/grpc v1.39.1
 	google.golang.org/protobuf v1.25.1-0.20200805231151-a709e31e5d12
 )

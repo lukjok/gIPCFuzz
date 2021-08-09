@@ -35,7 +35,7 @@ func (l *Loop) Run() {
 		l.IterationNo = idx + 1
 		l.CurrentMessage = &message
 		resp, err := runIteration(l.Context, message.Path, message.Message)
-		handleIterationErr(l.Context, err)
+		l.handleIterationErr(l.Context, err)
 		if err == nil {
 			log.Printf("Got response: %s", resp)
 		}
@@ -111,20 +111,18 @@ func (l *Loop) writeIterationCrash(out string) {
 	}
 }
 
-func handleIterationErr(ctx context.Context, err error) {
+func (l *Loop) handleIterationErr(ctx context.Context, err error) {
 	convertedErr := util.ConvertError(err)
 	if convertedErr == models.NetworkError {
 		log.Printf("gRPC request failed with error: %s", err)
 		if !watcher.IsProcessRunning(ctx) {
-			//TODO: Collect crash information if possible and restart the program
-			// if !watcher.StartProcess(ctx) {
-			// 	log.Print("Failed to start a specified program")
-			// } else {
-			// 	//time.Sleep(5 * time.Second)
-			// 	if watcher.IsProcessRunning(ctx) {
-			// 		return
-			// 	}
-			// }
+			go l.handleProcessStart(ctx)
+		}
+	}
+	if convertedErr == models.UnknownError {
+		log.Printf("gRPC request failed with error: %s", err)
+		if !watcher.IsProcessRunning(ctx) {
+			go l.handleProcessStart(ctx)
 		}
 	}
 }
