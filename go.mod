@@ -8,6 +8,7 @@ require (
 	github.com/google/gopacket v1.1.19
 	github.com/jhump/protoreflect v1.8.2
 	github.com/ofcoursedude/gowinlog v1.0.4 // indirect
+	github.com/pkg/errors v0.9.1
 	github.com/urfave/cli/v2 v2.3.0
 	golang.org/x/net v0.0.0-20200822124328-c89045814202
 	google.golang.org/grpc v1.39.1

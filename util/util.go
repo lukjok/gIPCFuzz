@@ -74,6 +74,16 @@ func DirectoryExists(path string) bool {
 	return true
 }
 
+func FileExists(filepath string) bool {
+	fileinfo, err := os.Stat(filepath)
+
+	if os.IsNotExist(err) {
+		return false
+	}
+	// Return false if the fileinfo says the file path is a directory.
+	return !fileinfo.IsDir()
+}
+
 func ConvertError(err error) models.GIPCFuzzError {
 	switch err.(type) {
 	case nil:

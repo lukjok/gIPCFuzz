@@ -7,6 +7,7 @@ import (
 
 	"github.com/lukjok/gipcfuzz/communication"
 	"github.com/lukjok/gipcfuzz/events"
+	"github.com/lukjok/gipcfuzz/memdump"
 	"github.com/lukjok/gipcfuzz/models"
 	"github.com/lukjok/gipcfuzz/output"
 	"github.com/lukjok/gipcfuzz/packet"
@@ -25,8 +26,27 @@ type Loop struct {
 	Messages       []packet.ProtoByteMsg
 	Output         *output.Filesystem
 	Events         *events.Events
+	MemDump        *memdump.MemoryDump
 	IterationNo    int
 	CurrentMessage *packet.ProtoByteMsg
+}
+
+func NewLoop(ctx context.Context) *Loop {
+	ctxData := ctx.Value("data").(models.ContextData)
+	if ctxData.Settings.PerformMemoryDump {
+		return &Loop{
+			Context: ctx,
+			Output:  output.NewFilesystem(ctxData.Settings.OutputPath),
+			Events:  &events.Events{},
+			MemDump: memdump.NewMemoryDump(ctxData.Settings.PathToExecutable, ctxData.Settings.OutputPath, ctxData.Settings.DumpExecutablePath),
+		}
+	} else {
+		return &Loop{
+			Context: ctx,
+			Output:  output.NewFilesystem(ctxData.Settings.OutputPath),
+			Events:  &events.Events{},
+		}
+	}
 }
 
 func (l *Loop) Run() {
@@ -79,6 +99,12 @@ func (l *Loop) handleProcessStart(ctx context.Context) {
 	startProgStatus := make(chan *watcher.StartProcessResponse)
 	if !watcher.IsProcessRunning(ctx) {
 		go watcher.StartProcess(ctx, startProgStatus)
+
+		dumpPath, err := l.MemDump.StartDump()
+		if err != nil {
+			log.Printf("Failed to start the memory dump for the process: %s", err)
+		}
+
 		for done := false; !done; {
 			select {
 			case response := <-startProgStatus:
@@ -88,7 +114,7 @@ func (l *Loop) handleProcessStart(ctx context.Context) {
 				}
 				if response != nil && response.Error == nil {
 					fmt.Print(response.Output)
-					l.writeIterationCrash(response.Output)
+					l.writeIterationCrash(response.Output, dumpPath)
 					done = true
 				}
 			default:
@@ -97,14 +123,14 @@ func (l *Loop) handleProcessStart(ctx context.Context) {
 	}
 }
 
-func (l *Loop) writeIterationCrash(out string) {
+func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath string) {
 	events := l.Events.GetEventData()
 	crashOutput := output.CrashOutput{
 		IterationNo:      l.IterationNo,
 		MethodPath:       l.CurrentMessage.Path,
-		ExecutableOutput: out,
+		ExecutableOutput: processOutput,
 		ExecutableEvents: events,
-		MemoryDumpPath:   "",
+		MemoryDumpPath:   memoryDumpPath,
 	}
 	if err := l.Output.SaveCrash(&crashOutput); err != nil {
 		log.Printf("Failed to write iteration crash dump with error: %s", err)

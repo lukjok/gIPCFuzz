@@ -1,3 +1,4 @@
 cmd/cmd.exe
 config.json
 .vscode/launch.json
+procdump64.exe

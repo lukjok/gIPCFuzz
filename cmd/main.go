@@ -7,10 +7,8 @@ import (
 	"time"
 
 	"github.com/lukjok/gipcfuzz/config"
-	"github.com/lukjok/gipcfuzz/events"
 	"github.com/lukjok/gipcfuzz/loop"
 	"github.com/lukjok/gipcfuzz/models"
-	"github.com/lukjok/gipcfuzz/output"
 	"github.com/urfave/cli/v2"
 )
 
@@ -40,13 +38,8 @@ func main() {
 					Settings: config,
 				}
 				ctx := context.WithValue(context.Background(), "data", ctxData)
-				looper := loop.Loop{
-					Context: ctx,
-					Output:  output.NewFilesystem("C:\\Source\\Output"),
-					Events:  &events.Events{},
-				}
+				looper := loop.NewLoop(ctx)
 				looper.Run()
-
 			}
 			return nil
 		},
