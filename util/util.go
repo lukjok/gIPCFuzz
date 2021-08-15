@@ -1,10 +1,13 @@
 package util
 
 import (
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+
+	"github.com/pkg/errors"
 
 	"github.com/lukjok/gipcfuzz/models"
 )
@@ -62,6 +65,19 @@ func GetFileFullPathInDirectory(fileDir string, ignoreDirs []string) []string {
 	}
 
 	return files
+}
+
+func ReadTextFile(path string) (string, error) {
+	if len(path) == 0 {
+		return "", errors.New("Path to the file was empty")
+	}
+
+	dat, err := ioutil.ReadFile(path)
+	if err != nil {
+		return "", errors.Errorf("Failed to read specified file: %s", err)
+	}
+
+	return string(dat), nil
 }
 
 func DirectoryExists(path string) bool {

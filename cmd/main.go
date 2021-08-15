@@ -9,6 +9,7 @@ import (
 	"github.com/lukjok/gipcfuzz/config"
 	"github.com/lukjok/gipcfuzz/loop"
 	"github.com/lukjok/gipcfuzz/models"
+	"github.com/lukjok/gipcfuzz/trace"
 	"github.com/urfave/cli/v2"
 )
 
@@ -37,6 +38,21 @@ func main() {
 				ctxData := models.ContextData{
 					Settings: config,
 				}
+				tm, err := trace.NewTraceManager()
+				if err != nil {
+					log.Fatalf("Failed to init trace manager: %s", err)
+				}
+
+				if err := tm.Start(21404); err != nil {
+					log.Fatalf("Failed to start trace: %s", err)
+				}
+				if err := tm.GetCoverage(); err != nil {
+					log.Fatalf("Failed to call Frida RPC: %s", err)
+				}
+				if err := tm.Stop(); err != nil {
+					log.Fatalf("Failed to stop Frida: %s", err)
+				}
+
 				ctx := context.WithValue(context.Background(), "data", ctxData)
 				looper := loop.NewLoop(ctx)
 				looper.Run()
