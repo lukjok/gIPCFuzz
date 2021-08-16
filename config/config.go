@@ -17,10 +17,10 @@ func ParseConfigurationFile(path string) Configuration {
 	}
 
 	unmarshalledConf := Configuration{}
-	jsonErr := json.Unmarshal(dat, &unmarshalledConf)
+	err = json.Unmarshal(dat, &unmarshalledConf)
 
 	if err != nil {
-		log.Fatal(jsonErr)
+		log.Fatal(err)
 	}
 
 	return unmarshalledConf

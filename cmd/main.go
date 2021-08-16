@@ -43,10 +43,13 @@ func main() {
 					log.Fatalf("Failed to init trace manager: %s", err)
 				}
 
-				if err := tm.Start(21404); err != nil {
+				if err := tm.Start(22036, config.Handlers); err != nil {
 					log.Fatalf("Failed to start trace: %s", err)
 				}
-				if err := tm.GetCoverage(); err != nil {
+				if _, err := tm.GetCoverage(); err != nil {
+					log.Fatalf("Failed to call Frida RPC: %s", err)
+				}
+				if err := tm.ClearCoverage(); err != nil {
 					log.Fatalf("Failed to call Frida RPC: %s", err)
 				}
 				if err := tm.Stop(); err != nil {

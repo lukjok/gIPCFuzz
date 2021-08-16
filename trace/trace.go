@@ -2,12 +2,15 @@ package trace
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	frida_go "github.com/a97077088/frida-go"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/lukjok/gipcfuzz/config"
 	"github.com/lukjok/gipcfuzz/util"
 	"github.com/pkg/errors"
 )
@@ -17,8 +20,9 @@ const (
 )
 
 type TraceManager interface {
-	Start(uint) error
-	GetCoverage() error
+	Start(uint, []config.Handler) error
+	GetCoverage() ([]CoverageBlock, error)
+	ClearCoverage() error
 	Stop() error
 }
 
@@ -48,7 +52,7 @@ func NewTraceManager() (*Trace, error) {
 	}, nil
 }
 
-func (t *Trace) Start(pid uint) error {
+func (t *Trace) Start(pid uint, handlers []config.Handler) error {
 	p, err := t.device.GetProcessById(pid, frida_go.ProcessMatchOptions{})
 	if err != nil {
 		return errors.Errorf("Failed to find specified process: %s", err)
@@ -86,16 +90,60 @@ func (t *Trace) Start(pid uint) error {
 		return errors.Errorf("Failed to load the script: %s", err)
 	}
 
+	r, err := t.sendRpcCall("setTargets", handlers)
+	if err != nil || r != "true" {
+		return errors.Errorf("Failed to set the coverage targets: %s", err)
+	}
+
+	_, err = t.sendRpcCall("startCoverageFeed")
+	if err != nil {
+		t.Stop()
+		return errors.Errorf("Failed to start the coverage feed: %s", err)
+	}
+
 	return nil
 }
 
-func (t *Trace) GetCoverage() error {
-	ctx, _ := context.WithTimeout(context.TODO(), time.Second*10)
-	r, err := t.script.RpcCall(ctx, "getCoverage")
+func (t *Trace) GetCoverage() ([]CoverageBlock, error) {
+	r, err := t.sendRpcCall("getCoverage")
 	if err != nil {
-		return errors.Errorf("Failed to fetch coverage information: %s", err)
+		return nil, errors.Errorf("Failed to fetch coverage information: %s", err)
 	}
-	fmt.Println(r.ToString())
+	fmt.Println(r)
+	unmarshalledCov := []RPCCoverage{}
+	err = json.Unmarshal([]byte(r), &unmarshalledCov)
+	if err != nil {
+		return nil, errors.Errorf("Failed to unmarshal coverage information: %s", err)
+	}
+
+	if len(unmarshalledCov) == 0 {
+		return nil, nil
+	}
+
+	covData := make([]CoverageBlock, 0, 5)
+	for _, cov := range unmarshalledCov[0].Coverage {
+		parsedStart, err := strconv.ParseUint(cov[0], 0, 64)
+		if err != nil {
+			continue
+		}
+		parsedEnd, err := strconv.ParseUint(cov[1], 0, 64)
+		if err != nil {
+			continue
+		}
+		covData = append(covData, CoverageBlock{
+			Module:     unmarshalledCov[0].Module,
+			BlockStart: parsedStart,
+			BlockEnd:   parsedEnd,
+		})
+	}
+	return covData, nil
+}
+
+func (t *Trace) ClearCoverage() error {
+	_, err := t.sendRpcCall("clearCoverage")
+	if err != nil {
+		return errors.Errorf("Failed to clear coverage information: %s", err)
+	}
 	return nil
 }
 
@@ -115,4 +163,14 @@ func (t *Trace) Stop() error {
 		return errors.Errorf("Failed to close the manager: %s", err)
 	}
 	return nil
+}
+
+func (t *Trace) sendRpcCall(methodName string, args ...interface{}) (string, error) {
+	ctx, _ := context.WithTimeout(context.TODO(), time.Second*5)
+	r, err := t.script.RpcCall(ctx, methodName, args)
+	if err != nil {
+		return "", errors.Errorf("Failed to call %s: %s ", methodName, err)
+	}
+
+	return r.ToString(), nil
 }
