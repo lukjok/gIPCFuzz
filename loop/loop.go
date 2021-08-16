@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/lukjok/gipcfuzz/communication"
 	"github.com/lukjok/gipcfuzz/events"
@@ -52,25 +53,54 @@ func NewLoop(ctx context.Context) *Loop {
 func (l *Loop) Run() {
 	l.initializeLoop()
 	for idx, message := range l.Messages {
-		l.IterationNo = idx + 1
-		l.CurrentMessage = &message
-		resp, err := runIteration(l.Context, message.Path, message.Message)
-		l.handleIterationErr(l.Context, err)
-		if err == nil {
-			log.Printf("Got response: %s", resp)
+		select {
+		case <-l.Context.Done():
+			l.Stop()
+			return
+		default:
+			time.Sleep(2 * time.Second)
+			l.IterationNo = idx + 1
+			l.CurrentMessage = &message
+
+			resp := l.runIteration()
+			if resp != nil {
+				log.Printf("Got response: %s", resp)
+			}
 		}
 	}
 }
 
 func (l *Loop) Stop() {
-
+	log.Println("Recieved interrupt signal. Cleaning up...")
+	l.Events.StopCapture()
 }
 
-func runIteration(ctx context.Context, path string, data *string) (protoiface.MessageV1, error) {
-	curIterData := ctx.Value("data").(models.ContextData)
-
+func (l *Loop) runIteration() protoiface.MessageV1 {
+	curIterData := l.Context.Value("data").(models.ContextData)
 	endpoint := fmt.Sprintf("%s:%d", curIterData.Settings.Host, curIterData.Settings.Port)
 	protoFiles := util.GetFileFullPathInDirectory(curIterData.Settings.ProtoFilesPath, []string{"Includes"})
+
+	req := communication.GIPCRequest{
+		Endpoint:          endpoint,
+		Path:              l.CurrentMessage.Path,
+		Data:              l.CurrentMessage.Message,
+		ProtoFiles:        protoFiles,
+		ProtoIncludesPath: curIterData.Settings.ProtoFilesIncludePath,
+	}
+
+	resp, err := communication.SendRequestWithMessage(req)
+	if err != nil {
+		l.handleIterationErr(err)
+		return nil
+	}
+	return resp
+}
+
+func (l *Loop) runIterationWithData(path string, data *string) (protoiface.MessageV1, error) {
+	curIterData := l.Context.Value("data").(models.ContextData)
+	endpoint := fmt.Sprintf("%s:%d", curIterData.Settings.Host, curIterData.Settings.Port)
+	protoFiles := util.GetFileFullPathInDirectory(curIterData.Settings.ProtoFilesPath, []string{"Includes"})
+
 	req := communication.GIPCRequest{
 		Endpoint:          endpoint,
 		Path:              path,
@@ -88,17 +118,30 @@ func (l *Loop) initializeLoop() {
 		loopData.Settings.PcapFilePath,
 		loopData.Settings.ProtoFilesPath,
 		loopData.Settings.ProtoFilesIncludePath)
+
+	if len(l.Messages) == 0 {
+		log.Fatal("No messages were processed! Bailing out...")
+	}
 	if err := l.Events.NewEventManager(events.DefaultWindowsQuery); err != nil {
 		log.Printf("Error occured while creating EventManager: %s", err)
 	}
+
 	l.Events.StartCapture()
-	go l.handleProcessStart(l.Context)
+	go l.handleProcessStart()
+
+	if loopData.Settings.DryRun {
+		log.Println("Performing a dry run before starting a fuzzing process...")
+		if err := l.performDryRun(); err != nil {
+			log.Fatal("Dry run enabled and the process failed to respond to the valid message! Bailing out")
+		}
+	}
 }
 
-func (l *Loop) handleProcessStart(ctx context.Context) {
+func (l *Loop) handleProcessStart() {
 	startProgStatus := make(chan *watcher.StartProcessResponse)
-	if !watcher.IsProcessRunning(ctx) {
-		go watcher.StartProcess(ctx, startProgStatus)
+
+	if !watcher.IsProcessRunning(l.Context) {
+		go watcher.StartProcess(l.Context, startProgStatus)
 
 		dumpPath, err := l.MemDump.StartDump()
 		if err != nil {
@@ -107,13 +150,15 @@ func (l *Loop) handleProcessStart(ctx context.Context) {
 
 		for done := false; !done; {
 			select {
+			case <-l.Context.Done():
+				close(startProgStatus)
+				done = true
 			case response := <-startProgStatus:
 				if response != nil && response.Error != nil {
 					log.Printf("Error occurred while starting the process: %s", response.Error)
 					done = true
 				}
 				if response != nil && response.Error == nil {
-					fmt.Print(response.Output)
 					l.writeIterationCrash(response.Output, dumpPath)
 					done = true
 				}
@@ -137,18 +182,24 @@ func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath string) {
 	}
 }
 
-func (l *Loop) handleIterationErr(ctx context.Context, err error) {
+func (l *Loop) handleIterationErr(err error) {
 	convertedErr := util.ConvertError(err)
 	if convertedErr == models.NetworkError {
 		log.Printf("gRPC request failed with error: %s", err)
-		if !watcher.IsProcessRunning(ctx) {
-			go l.handleProcessStart(ctx)
+		if !watcher.IsProcessRunning(l.Context) {
+			go l.handleProcessStart()
 		}
 	}
 	if convertedErr == models.UnknownError {
 		log.Printf("gRPC request failed with error: %s", err)
-		if !watcher.IsProcessRunning(ctx) {
-			go l.handleProcessStart(ctx)
+		if !watcher.IsProcessRunning(l.Context) {
+			go l.handleProcessStart()
 		}
 	}
+}
+
+func (l *Loop) performDryRun() error {
+	sampleMessage := l.Messages[0]
+	_, err := l.runIterationWithData(sampleMessage.Path, sampleMessage.Message)
+	return err
 }

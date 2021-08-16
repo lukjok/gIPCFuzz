@@ -46,8 +46,17 @@ func StartProcess(ctx context.Context, status chan *StartProcessResponse) {
 		return
 	}
 
-	cmd.Wait()
-	status <- NewStartProcessResponse(nil, buf.String())
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Killing process...")
+			cmd.Process.Kill()
+			return
+		default:
+			cmd.Wait()
+			status <- NewStartProcessResponse(nil, buf.String())
+		}
+	}
 }
 
 func getProcessByName(executableName string) (*os.Process, error) {

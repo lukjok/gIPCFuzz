@@ -10,6 +10,7 @@ type Configuration struct {
 	Host                  string    `json:"host"`
 	Port                  int32     `json:"port"`
 	SSL                   bool      `json:"ssl"`
+	DryRun                bool      `json:"performDryRun"`
 	ProtoFilesPath        string    `json:"protoFilesPath"`
 	ProtoFilesIncludePath []string  `json:"protoFilesIncludePath"`
 	PcapFilePath          string    `json:"pcapFilePath"`

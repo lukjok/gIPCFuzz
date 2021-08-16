@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	scriptFilePath = "C:\\Users\\lukas\\Downloads\\frida-core\\script.js"
+	scriptFilePath = "C:\\Source\\gIPCFuzz\\script.js"
 )
 
 type TraceManager interface {
@@ -64,7 +64,7 @@ func (t *Trace) Start(pid uint, handlers []config.Handler) error {
 	}
 
 	scops := frida_go.ScriptOptions{
-		Name:    "Test",
+		Name:    "Script",
 		Runtime: frida_go.FRIDA_SCRIPT_RUNTIME_QJS,
 	}
 	script, err := util.ReadTextFile(scriptFilePath)
