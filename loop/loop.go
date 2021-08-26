@@ -10,6 +10,7 @@ import (
 	"github.com/lukjok/gipcfuzz/events"
 	"github.com/lukjok/gipcfuzz/memdump"
 	"github.com/lukjok/gipcfuzz/models"
+	"github.com/lukjok/gipcfuzz/mutator"
 	"github.com/lukjok/gipcfuzz/output"
 	"github.com/lukjok/gipcfuzz/packet"
 	"github.com/lukjok/gipcfuzz/util"
@@ -62,10 +63,14 @@ func (l *Loop) Run() {
 			l.IterationNo = idx + 1
 			l.CurrentMessage = &message
 
-			resp := l.runIteration()
-			if resp != nil {
-				log.Printf("Got response: %s", resp)
+			mMsg := new(mutator.MutatedMessage)
+			if err := mMsg.New(*message.Message, message.Descriptor, []string{}); err == nil {
+				mMsg.MutateMessage()
 			}
+			// resp := l.runIteration()
+			// if resp != nil {
+			// 	log.Printf("Got response: %s", resp)
+			// }
 		}
 	}
 }

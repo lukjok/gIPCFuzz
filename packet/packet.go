@@ -197,9 +197,10 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 
 	if side != 1 {
 		return ProtoByteMsg{
-			Path:    path,
-			Type:    MessageType(side),
-			Message: nil,
+			Path:       path,
+			Type:       MessageType(side),
+			Descriptor: nil,
+			Message:    nil,
 		}, &proto.ParseError{}
 	}
 
@@ -207,9 +208,10 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 		// use compression, check Message-Encoding later
 		log.Printf("%s %d use compression, msg %q", net, id, buf[5:])
 		return ProtoByteMsg{
-			Path:    path,
-			Type:    MessageType(side),
-			Message: nil,
+			Path:       path,
+			Type:       MessageType(side),
+			Descriptor: nil,
+			Message:    nil,
 		}, &proto.ParseError{}
 	}
 
@@ -218,11 +220,13 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 			oldPath := strings.Replace(path[1:], "/", ".", 1)
 			sym := dscr.FindSymbol(oldPath)
 			if sym != nil {
+				mDsc := sym.(*desc.MethodDescriptor)
 				encMsg := hex.EncodeToString(buf[5:])
 				return ProtoByteMsg{
-					Path:    path[1:],
-					Type:    MessageType(side),
-					Message: &encMsg,
+					Path:       path[1:],
+					Type:       MessageType(side),
+					Descriptor: mDsc.GetInputType(),
+					Message:    &encMsg,
 				}, nil
 			} else {
 				continue
@@ -231,9 +235,10 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 	}
 
 	return ProtoByteMsg{
-		Path:    path,
-		Type:    MessageType(side),
-		Message: nil,
+		Path:       path,
+		Type:       MessageType(side),
+		Descriptor: nil,
+		Message:    nil,
 	}, &proto.ParseError{}
 }
 

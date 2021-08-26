@@ -1,6 +1,9 @@
 package packet
 
-import "github.com/golang/protobuf/proto"
+import (
+	"github.com/golang/protobuf/proto"
+	"github.com/jhump/protoreflect/desc"
+)
 
 type MessageType int
 
@@ -17,7 +20,8 @@ type ProtoMsg struct {
 }
 
 type ProtoByteMsg struct {
-	Path    string
-	Type    MessageType
-	Message *string
+	Path       string
+	Type       MessageType
+	Descriptor *desc.MessageDescriptor
+	Message    *string
 }
