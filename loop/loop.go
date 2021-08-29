@@ -65,7 +65,9 @@ func (l *Loop) Run() {
 
 			mMsg := new(mutator.MutatedMessage)
 			if err := mMsg.New(*message.Message, message.Descriptor, []string{}); err == nil {
-				mMsg.MutateMessage()
+				if _, err := mMsg.MutateMessage(); err != nil {
+					log.Println(err)
+				}
 			}
 			// resp := l.runIteration()
 			// if resp != nil {
@@ -123,6 +125,8 @@ func (l *Loop) initializeLoop() {
 		loopData.Settings.PcapFilePath,
 		loopData.Settings.ProtoFilesPath,
 		loopData.Settings.ProtoFilesIncludePath)
+
+	packet.CalculateRelationMatrix(l.Messages)
 
 	if len(l.Messages) == 0 {
 		log.Fatal("No messages were processed! Bailing out...")

@@ -195,7 +195,7 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 	id := frame.Header().StreamID
 	compress := buf[0]
 
-	if side != 1 {
+	if len(buf) == 0 {
 		return ProtoByteMsg{
 			Path:       path,
 			Type:       MessageType(side),
@@ -203,6 +203,15 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 			Message:    nil,
 		}, &proto.ParseError{}
 	}
+
+	// if side != 1 {
+	// 	return ProtoByteMsg{
+	// 		Path:       path,
+	// 		Type:       MessageType(side),
+	// 		Descriptor: nil,
+	// 		Message:    nil,
+	// 	}, &proto.ParseError{}
+	// }
 
 	if compress == 1 {
 		// use compression, check Message-Encoding later
@@ -222,12 +231,22 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 			if sym != nil {
 				mDsc := sym.(*desc.MethodDescriptor)
 				encMsg := hex.EncodeToString(buf[5:])
-				return ProtoByteMsg{
-					Path:       path[1:],
-					Type:       MessageType(side),
-					Descriptor: mDsc.GetInputType(),
-					Message:    &encMsg,
-				}, nil
+				if MessageType(side) == Request {
+					return ProtoByteMsg{
+						Path:       path[1:],
+						Type:       MessageType(side),
+						Descriptor: mDsc.GetInputType(),
+						Message:    &encMsg,
+					}, nil
+				} else {
+					return ProtoByteMsg{
+						Path:       path[1:],
+						Type:       MessageType(side),
+						Descriptor: mDsc.GetOutputType(),
+						Message:    &encMsg,
+					}, nil
+				}
+
 			} else {
 				continue
 			}

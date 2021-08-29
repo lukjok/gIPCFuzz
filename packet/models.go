@@ -25,3 +25,9 @@ type ProtoByteMsg struct {
 	Descriptor *desc.MessageDescriptor
 	Message    *string
 }
+
+type MsgValDep struct {
+	Msg1      string
+	Msg2      string
+	Relations map[string]string
+}
