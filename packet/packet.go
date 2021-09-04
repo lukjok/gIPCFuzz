@@ -24,6 +24,7 @@ import (
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/lukjok/gipcfuzz/util"
+	"github.com/pkg/errors"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 )
@@ -199,9 +200,10 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 		return ProtoByteMsg{
 			Path:       path,
 			Type:       MessageType(side),
+			StreamID:   0,
 			Descriptor: nil,
 			Message:    nil,
-		}, &proto.ParseError{}
+		}, errors.New("Message length is zero!")
 	}
 
 	// if side != 1 {
@@ -219,9 +221,10 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 		return ProtoByteMsg{
 			Path:       path,
 			Type:       MessageType(side),
+			StreamID:   0,
 			Descriptor: nil,
 			Message:    nil,
-		}, &proto.ParseError{}
+		}, errors.New("Message is using compression!")
 	}
 
 	if len(protoDescriptors) > 0 {
@@ -235,6 +238,7 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 					return ProtoByteMsg{
 						Path:       path[1:],
 						Type:       MessageType(side),
+						StreamID:   id,
 						Descriptor: mDsc.GetInputType(),
 						Message:    &encMsg,
 					}, nil
@@ -242,6 +246,7 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 					return ProtoByteMsg{
 						Path:       path[1:],
 						Type:       MessageType(side),
+						StreamID:   id,
 						Descriptor: mDsc.GetOutputType(),
 						Message:    &encMsg,
 					}, nil
@@ -257,8 +262,9 @@ func ParseFrameToByteMsg(net string, path string, frame *http2.DataFrame, side i
 		Path:       path,
 		Type:       MessageType(side),
 		Descriptor: nil,
+		StreamID:   0,
 		Message:    nil,
-	}, &proto.ParseError{}
+	}, errors.New("No proto descriptors were found!")
 }
 
 func ParseFrame(net string, path string, frame *http2.DataFrame, side int) (ProtoMsg, error) {

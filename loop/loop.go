@@ -126,7 +126,8 @@ func (l *Loop) initializeLoop() {
 		loopData.Settings.ProtoFilesPath,
 		loopData.Settings.ProtoFilesIncludePath)
 
-	packet.CalculateRelationMatrix(l.Messages)
+	//packet.CalculateRelationMatrix(l.Messages)
+	packet.CalculateReqResRelations(l.Messages)
 
 	if len(l.Messages) == 0 {
 		log.Fatal("No messages were processed! Bailing out...")
