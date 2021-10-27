@@ -17,6 +17,7 @@ type Configuration struct {
 }
 
 type Handler struct {
+	Method      string `json:"method"`
 	Module      string `json:"module"`
 	HandlerName string `json:"handler"`
 }

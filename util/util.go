@@ -110,3 +110,63 @@ func ConvertError(err error) models.GIPCFuzzError {
 		return models.UnknownError
 	}
 }
+
+func ScaleIntegers(array []int, scaleMin int, scaleMax int) {
+	var nelems, i, source_min, source_max, source_scale, target_scale, zsrc, scaled int
+	nelems = len(array)
+	source_min = array[0]
+	source_max = array[0]
+
+	for i = 1; i < nelems; i++ {
+		if array[i] < source_min {
+			source_min = array[i]
+		}
+		if array[i] > source_max {
+			source_max = array[i]
+		}
+	}
+
+	if source_min == source_max {
+		return
+	}
+
+	source_scale = source_max - source_min
+	target_scale = scaleMax - scaleMin
+
+	for i = 0; i < nelems; i++ {
+		zsrc = array[i] - source_min
+		// Round to nearest; if exactly halfway, rounds up
+		scaled = (zsrc*target_scale*2 + source_scale) / source_scale / 2
+		array[i] = scaled + scaleMin
+	}
+}
+
+func ScaleIntegersReverse(array []int, scaleMin int, scaleMax int) {
+	var nelems, i, source_min, source_max, source_scale, target_scale, zsrc, scaled int
+	nelems = len(array)
+	source_min = array[0]
+	source_max = array[0]
+
+	for i = 1; i < nelems; i++ {
+		if array[i] < source_max {
+			source_max = array[i]
+		}
+		if array[i] > source_min {
+			source_min = array[i]
+		}
+	}
+
+	if source_min == source_max {
+		return
+	}
+
+	source_scale = source_max - source_min
+	target_scale = scaleMax - scaleMin
+
+	for i = 0; i < nelems; i++ {
+		zsrc = array[i] - source_min
+		// Round to nearest; if exactly halfway, rounds up
+		scaled = (zsrc*target_scale*2 + source_scale) / source_scale / 2
+		array[i] = scaled + scaleMin
+	}
+}

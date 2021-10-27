@@ -20,10 +20,11 @@ const (
 )
 
 type TraceManager interface {
-	Start(uint, []config.Handler) error
+	Start(string, []config.Handler) error
 	GetCoverage() ([]CoverageBlock, error)
 	ClearCoverage() error
 	Stop() error
+	Unload() error
 }
 
 type Trace struct {
@@ -52,15 +53,17 @@ func NewTraceManager() (*Trace, error) {
 	}, nil
 }
 
-func (t *Trace) Start(pid uint, handlers []config.Handler) error {
-	p, err := t.device.GetProcessById(pid, frida_go.ProcessMatchOptions{})
+func (t *Trace) Start(pName string, handler config.Handler) error {
+	p, err := t.device.GetProcessByName(pName, frida_go.ProcessMatchOptions{})
 	if err != nil {
 		return errors.Errorf("Failed to find specified process: %s", err)
 	}
 
-	t.session, err = t.device.Attach(p.Pid(), frida_go.SessionOptions{})
-	if err != nil {
-		return errors.Errorf("Failed to attach to the specifed process: %s", err)
+	if t.session == nil {
+		t.session, err = t.device.Attach(p.Pid(), frida_go.SessionOptions{})
+		if err != nil {
+			return errors.Errorf("Failed to attach to the specifed process: %s", err)
+		}
 	}
 
 	scops := frida_go.ScriptOptions{
@@ -90,9 +93,9 @@ func (t *Trace) Start(pid uint, handlers []config.Handler) error {
 		return errors.Errorf("Failed to load the script: %s", err)
 	}
 
-	r, err := t.sendRpcCall("setTargets", handlers)
+	r, err := t.sendRpcCall("setTarget", handler)
 	if err != nil || r != "true" {
-		return errors.Errorf("Failed to set the coverage targets: %s", err)
+		return errors.Errorf("Failed to set the coverage target: %s", err)
 	}
 
 	_, err = t.sendRpcCall("startCoverageFeed")
@@ -147,12 +150,27 @@ func (t *Trace) ClearCoverage() error {
 	return nil
 }
 
-func (t *Trace) Stop() error {
+func (t *Trace) GetLastExecTime() (int, error) {
+	res, err := t.sendRpcCall("getExecTime")
+	if err != nil {
+		return 0, errors.Errorf("Failed to clear coverage information: %s", err)
+	}
+	time, err := strconv.Atoi(res)
+	if err != nil {
+		return 0, err
+	}
+	return time, nil
+}
+
+func (t *Trace) Unload() error {
 	if err := t.script.UnLoad(); err != nil {
 		return errors.Errorf("Failed to unload the script: %s", err)
 	}
 	t.script.Free()
+	return nil
+}
 
+func (t *Trace) Stop() error {
 	if err := t.session.Detach(); err != nil {
 		return errors.Errorf("Failed to detach the session: %s", err)
 	}

@@ -224,7 +224,7 @@ func getRelationshipsFromMessages(fd1, fd2 *desc.FieldDescriptor, msg1, msg2 *dy
 	}
 }
 
-func CalculateRelationMatrix(msgs []ProtoByteMsg) {
+func CalculateRelationMatrix(msgs []ProtoByteMsg) ([][]float32, map[string]int) {
 	requestMsgs := make([]ProtoByteMsg, 0, 10)
 	for _, msg := range msgs {
 		if msg.Type == Request {
@@ -263,7 +263,7 @@ func CalculateRelationMatrix(msgs []ProtoByteMsg) {
 	}
 
 	normalize(matrix, len(uniqMsgs))
-	fmt.Println(k)
+	return matrix, m
 }
 
 func normalize(m [][]float32, size int) {

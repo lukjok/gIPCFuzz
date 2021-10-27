@@ -23,6 +23,7 @@ type ProtoByteMsg struct {
 	Path       string
 	Type       MessageType
 	Descriptor *desc.MessageDescriptor
+	Energy     int
 	StreamID   uint32
 	Message    *string
 }

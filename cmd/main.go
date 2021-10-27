@@ -38,23 +38,6 @@ func main() {
 				ctxData := models.ContextData{
 					Settings: config,
 				}
-				// tm, err := trace.NewTraceManager()
-				// if err != nil {
-				// 	log.Fatalf("Failed to init trace manager: %s", err)
-				// }
-
-				// if err := tm.Start(22036, config.Handlers); err != nil {
-				// 	log.Fatalf("Failed to start trace: %s", err)
-				// }
-				// if _, err := tm.GetCoverage(); err != nil {
-				// 	log.Fatalf("Failed to call Frida RPC: %s", err)
-				// }
-				// if err := tm.ClearCoverage(); err != nil {
-				// 	log.Fatalf("Failed to call Frida RPC: %s", err)
-				// }
-				// if err := tm.Stop(); err != nil {
-				// 	log.Fatalf("Failed to stop Frida: %s", err)
-				// }
 
 				ctx := context.WithValue(context.Background(), "data", ctxData)
 				ctx, cancel := context.WithCancel(ctx)

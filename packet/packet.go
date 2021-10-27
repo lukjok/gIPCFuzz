@@ -54,6 +54,15 @@ func (h *httpStreamFactory) New(net, transport gopacket.Flow) tcpassembly.Stream
 	return &hstream.r
 }
 
+func GetMessageFieldCount(dsc *desc.MessageDescriptor) int {
+	//TODO: Calculate the nested field values too
+	return len(dsc.GetFields())
+}
+
+func DistinctMessages(msgs []ProtoByteMsg) []ProtoByteMsg {
+	return unique(msgs)
+}
+
 func GetParsedMessages(path string, protoPath string, protoIncludePath []string) []ProtoByteMsg {
 	LoadProtoDescriptions(
 		util.GetFileNamesInDirectory(protoPath, []string{"Includes"}),
