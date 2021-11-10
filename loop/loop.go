@@ -2,12 +2,15 @@ package loop
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
+	"math/rand"
 	"path/filepath"
 	"sort"
 	"time"
 
+	"github.com/jhump/protoreflect/dynamic"
 	"github.com/lukjok/gipcfuzz/communication"
 	"github.com/lukjok/gipcfuzz/config"
 	"github.com/lukjok/gipcfuzz/events"
@@ -77,17 +80,30 @@ func (l *Loop) Run() {
 			time.Sleep(2 * time.Second)
 			l.IterationNo = idx + 1
 			l.CurrentMessage = &message
+			rSrc := rand.NewSource(time.Hour.Nanoseconds())
+			mutMgr := new(mutator.MutatorManager)
+			mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{})
 
-			mMsg := new(mutator.MutatedMessage)
-			if err := mMsg.New(*message.Message, message.Descriptor, []string{}); err == nil {
-				if _, err := mMsg.MutateMessage(); err != nil {
-					log.Println(err)
-				}
+			if len(*l.CurrentMessage.Message) == 0 {
+				continue
 			}
-			// resp := l.runIteration()
-			// if resp != nil {
-			// 	log.Printf("Got response: %s", resp)
-			// }
+
+			buf, err := hex.DecodeString(*l.CurrentMessage.Message)
+			if err != nil {
+				continue
+			}
+			message := dynamic.NewMessage(l.CurrentMessage.Descriptor)
+			if err := message.Unmarshal(buf); err != nil {
+				continue
+			}
+
+			for i := l.CurrentMessage.Energy; i != 0; i-- {
+				mutMsg, err := mutMgr.DoSingleMessageMutation(l.CurrentMessage.Descriptor, message)
+				if err != nil {
+					break
+				}
+				l.runIterationWithData(l.CurrentMessage.Path, &mutMsg)
+			}
 		}
 	}
 }
