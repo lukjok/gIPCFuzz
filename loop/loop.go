@@ -71,6 +71,7 @@ func NewLoop(ctx context.Context) *Loop {
 
 func (l *Loop) Run() {
 	l.initializeLoop()
+	loopData := l.Context.Value("data").(models.ContextData)
 	for idx, message := range l.Messages {
 		select {
 		case <-l.Context.Done():
@@ -82,6 +83,7 @@ func (l *Loop) Run() {
 			l.CurrentMessage = &message
 			rSrc := rand.NewSource(time.Hour.Nanoseconds())
 			mutMgr := new(mutator.MutatorManager)
+			procName := filepath.Base(loopData.Settings.PathToExecutable)
 			mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{})
 
 			if len(*l.CurrentMessage.Message) == 0 {
@@ -97,19 +99,99 @@ func (l *Loop) Run() {
 				continue
 			}
 
+			var hnd config.Handler
+			for j := 0; j < len(loopData.Settings.Handlers); j++ {
+				if loopData.Settings.Handlers[j].Method == l.CurrentMessage.Path {
+					hnd = loopData.Settings.Handlers[j]
+					break
+				}
+			}
+
+			if err := l.Trace.Start(procName, hnd); err != nil {
+				log.Println(err, "Failed to start tracing session for fuzzed message!")
+			}
+
 			for i := l.CurrentMessage.Energy; i != 0; i-- {
 				mutMsg, err := mutMgr.DoSingleMessageMutation(l.CurrentMessage.Descriptor, message)
 				if err != nil {
 					break
 				}
 				l.runIterationWithData(l.CurrentMessage.Path, &mutMsg)
+
+				cov, err := l.Trace.GetCoverage()
+				if err != nil {
+					log.Println(err, "Failed to get fuzzed message coverage!")
+				}
+
+				// t, err := l.Trace.GetLastExecTime()
+				// if err != nil {
+				// 	log.Println(err, "Failed to get fuzzed message execution time!")
+				// }
+
+				if err := l.Trace.ClearCoverage(); err != nil {
+					log.Println("Failed to clear coverage information. Next run coverage may contain garbage data!")
+				}
+
+				l.processCoverageAndAppendMsg(cov)
 			}
+
+			if err := l.Trace.Unload(); err != nil {
+				log.Println(err, "Failed to unload script")
+			}
+		}
+	}
+}
+
+func (l *Loop) processCoverageAndAppendMsg(cov []trace.CoverageBlock) {
+	covChange := false
+	if len(cov) != len(l.CurrentMessage.Coverage) {
+		covChange = true
+	} else {
+		for i := 0; i < len(l.CurrentMessage.Coverage); i++ {
+			if cov[i].BlockStart != l.CurrentMessage.Coverage[i].BlockStart || cov[i].BlockEnd != l.CurrentMessage.Coverage[i].BlockEnd {
+				covChange = true
+			}
+		}
+	}
+	if !covChange {
+		return
+	}
+	for i := 0; i < len(l.Messages); i++ {
+		if len(cov) != len(l.Messages[i].Coverage) {
+			//TODO: need to implement a energy recalculation method against existing messages
+			l.Messages = append(l.Messages, LoopMessage{
+				Path:       l.CurrentMessage.Path,
+				Message:    l.CurrentMessage.Message,
+				Descriptor: l.CurrentMessage.Descriptor,
+				Energy:     l.CurrentMessage.Energy,
+				Coverage:   cov,
+			})
+		} else {
+			covChange = false
+			for j := 0; j < len(l.Messages[i].Coverage) && !covChange; j++ {
+				if cov[j].BlockStart != l.Messages[i].Coverage[j].BlockStart || cov[j].BlockEnd != l.Messages[i].Coverage[j].BlockEnd {
+					covChange = true
+				}
+			}
+			l.Messages = append(l.Messages, LoopMessage{
+				Path:       l.CurrentMessage.Path,
+				Message:    l.CurrentMessage.Message,
+				Descriptor: l.CurrentMessage.Descriptor,
+				Energy:     l.CurrentMessage.Energy,
+				Coverage:   cov,
+			})
 		}
 	}
 }
 
 func (l *Loop) Stop() {
 	log.Println("Recieved interrupt signal. Cleaning up...")
+	if err := l.Trace.Unload(); err != nil {
+		log.Println(err, "Failed to unload script!")
+	}
+	if err := l.Trace.Stop(); err != nil {
+		log.Println(err, "Failed to stop tracing session!")
+	}
 	l.Events.StopCapture()
 }
 
