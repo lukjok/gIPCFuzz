@@ -105,36 +105,33 @@ func main() {
 }
 
 func updateUi(area *pterm.AreaPrinter, data models.UIData) {
-	for i := 0; i < 10; i++ {
-		timing, _ := pterm.DefaultBulletList.WithItems([]pterm.BulletListItem{
-			{Level: 0, Text: pterm.Gray("Run time: ") + pterm.White(time.Since(data.StartTime).Round(time.Second).String())},
-			{Level: 0, Text: pterm.Gray("Last new path :") + pterm.White(time.Since(data.NewPathTime).Round(time.Second).String())},
-			{Level: 0, Text: pterm.Gray("Last unique crash: ") + pterm.White(time.Since(data.LastCrashTime).Round(time.Second).String())},
-			{Level: 0, Text: pterm.Gray("Last unique hang: ") + pterm.White(time.Since(data.LastHangTime).Round(time.Second).String())},
-		}).Srender()
+	timing, _ := pterm.DefaultBulletList.WithItems([]pterm.BulletListItem{
+		{Level: 0, Text: pterm.Gray("Run time: ") + pterm.White(time.Since(data.StartTime).Round(time.Second).String())},
+		{Level: 0, Text: pterm.Gray("Last new path :") + pterm.White(time.Since(data.NewPathTime).Round(time.Second).String())},
+		{Level: 0, Text: pterm.Gray("Last unique crash: ") + pterm.White(time.Since(data.LastCrashTime).Round(time.Second).String())},
+		{Level: 0, Text: pterm.Gray("Last unique hang: ") + pterm.White(time.Since(data.LastHangTime).Round(time.Second).String())},
+	}).Srender()
+	oresults, _ := pterm.DefaultBulletList.WithItems([]pterm.BulletListItem{
+		{Level: 0, Text: pterm.Gray("Cycles done: ") + pterm.White(data.CyclesDone)},
+		{Level: 0, Text: pterm.Gray("Total paths: ") + pterm.White(data.TotalPaths)},
+		{Level: 0, Text: pterm.Gray("Unique crashes: ") + pterm.White(data.UniqCrash)},
+		{Level: 0, Text: pterm.Gray("Unique hangs: ") + pterm.White(data.UniqHangs)},
+	}).Srender()
+	progress, _ := pterm.DefaultBulletList.WithItems([]pterm.BulletListItem{
+		{Level: 0, Text: pterm.Gray("Total executions: ") + pterm.White(data.TotalExec)},
+		{Level: 0, Text: pterm.Gray("Execution speed: ") + pterm.White(data.ExecSpd)},
+		{Level: 0, Text: pterm.Gray("Current message: ") + pterm.White(data.CurrMsg)},
+		{Level: 0, Text: pterm.Gray("Message progress: ") + pterm.White(data.MsgProg)},
+	}).Srender()
 
-		oresults, _ := pterm.DefaultBulletList.WithItems([]pterm.BulletListItem{
-			{Level: 0, Text: pterm.Gray("Cycles done: ") + pterm.White(data.CyclesDone)},
-			{Level: 0, Text: pterm.Gray("Total paths: ") + pterm.White(data.TotalPaths)},
-			{Level: 0, Text: pterm.Gray("Unique crashes: ") + pterm.White(data.UniqCrash)},
-			{Level: 0, Text: pterm.Gray("Unique hangs: ") + pterm.White(data.UniqHangs)},
-		}).Srender()
-		progress, _ := pterm.DefaultBulletList.WithItems([]pterm.BulletListItem{
-			{Level: 0, Text: pterm.Gray("Total executions: ") + pterm.White(data.TotalExec)},
-			{Level: 0, Text: pterm.Gray("Execution speed: ") + pterm.White(data.ExecSpd)},
-			{Level: 0, Text: pterm.Gray("Current message: ") + pterm.White(data.CurrMsg)},
-			{Level: 0, Text: pterm.Gray("Message progress: ") + pterm.White(data.MsgProg)},
-		}).Srender()
+	panel1 := pterm.DefaultBox.WithTitle(pterm.Green("Timing")).Sprint(timing)
+	panel2 := pterm.DefaultBox.WithTitle(pterm.Green("Overall results")).Sprint(oresults)
+	panel3 := pterm.DefaultBox.WithTitle(pterm.Green("Progress")).Sprint(progress)
 
-		panel1 := pterm.DefaultBox.WithTitle(pterm.Green("Timing")).Sprint(timing)
-		panel2 := pterm.DefaultBox.WithTitle(pterm.Green("Overall results")).Sprint(oresults)
-		panel3 := pterm.DefaultBox.WithTitle(pterm.Green("Progress")).Sprint(progress)
+	panels, _ := pterm.DefaultPanel.WithPanels(pterm.Panels{
+		{{Data: panel1}, {Data: panel2}},
+		{{Data: panel3}},
+	}).Srender()
 
-		panels, _ := pterm.DefaultPanel.WithPanels(pterm.Panels{
-			{{Data: panel1}, {Data: panel2}},
-			{{Data: panel3}},
-		}).Srender()
-
-		area.Update(pterm.DefaultBox.Sprint(panels))
-	}
+	area.Update(pterm.DefaultBox.Sprint(panels))
 }
