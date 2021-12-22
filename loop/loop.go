@@ -41,7 +41,7 @@ type Loop struct {
 	Events         *events.Events
 	MemDump        *memdump.MemoryDump
 	Trace          *trace.Trace
-	IterationNo    int
+	Status         *LoopStatus
 	CurrentMessage *LoopMessage
 }
 
@@ -54,6 +54,7 @@ func NewLoop(ctx context.Context) *Loop {
 	if ctxData.Settings.PerformMemoryDump {
 		return &Loop{
 			Context: ctx,
+			Status:  &LoopStatus{},
 			Output:  output.NewFilesystem(ctxData.Settings.OutputPath),
 			Events:  &events.Events{},
 			Trace:   tm,
@@ -62,6 +63,7 @@ func NewLoop(ctx context.Context) *Loop {
 	} else {
 		return &Loop{
 			Context: ctx,
+			Status:  &LoopStatus{},
 			Output:  output.NewFilesystem(ctxData.Settings.OutputPath),
 			Trace:   tm,
 			Events:  &events.Events{},
@@ -70,8 +72,10 @@ func NewLoop(ctx context.Context) *Loop {
 }
 
 func (l *Loop) Run() {
-	l.initializeLoop()
+	rSrc := rand.NewSource(time.Hour.Nanoseconds())
 	loopData := l.Context.Value("data").(models.ContextData)
+	l.initializeLoop()
+
 	for idx, message := range l.Messages {
 		select {
 		case <-l.Context.Done():
@@ -79,9 +83,8 @@ func (l *Loop) Run() {
 			return
 		default:
 			time.Sleep(2 * time.Second)
-			l.IterationNo = idx + 1
+			l.Status.IterationNo = idx + 1
 			l.CurrentMessage = &message
-			rSrc := rand.NewSource(time.Hour.Nanoseconds())
 			mutMgr := new(mutator.MutatorManager)
 			procName := filepath.Base(loopData.Settings.PathToExecutable)
 			mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{})
@@ -107,8 +110,16 @@ func (l *Loop) Run() {
 				}
 			}
 
+			ticker := time.NewTicker(1 * time.Second)
+			for range ticker.C {
+				if watcher.IsProcessRunning(l.Context) {
+					break
+				}
+			}
+			ticker.Stop()
+
 			if err := l.Trace.Start(procName, hnd); err != nil {
-				log.Println(err, "Failed to start tracing session for fuzzed message!")
+				//log.Println(err, "Failed to start tracing session for fuzzed message!")
 			}
 
 			for i := l.CurrentMessage.Energy; i != 0; i-- {
@@ -116,11 +127,20 @@ func (l *Loop) Run() {
 				if err != nil {
 					break
 				}
-				l.runIterationWithData(l.CurrentMessage.Path, &mutMsg)
+
+				l.CurrentMessage.Message = &mutMsg
+				_, rErr := l.runIterationWithData(l.CurrentMessage.Path, &mutMsg)
+
+				l.Status.MsgProg = 100 - float64((100*i)/l.CurrentMessage.Energy)
+				l.Status.TotalExec += 1
+
+				if rErr != nil {
+					l.handleIterationErr(rErr)
+				}
 
 				cov, err := l.Trace.GetCoverage()
 				if err != nil {
-					log.Println(err, "Failed to get fuzzed message coverage!")
+					//log.Println(err, "Failed to get fuzzed message coverage!")
 				}
 
 				// t, err := l.Trace.GetLastExecTime()
@@ -129,16 +149,37 @@ func (l *Loop) Run() {
 				// }
 
 				if err := l.Trace.ClearCoverage(); err != nil {
-					log.Println("Failed to clear coverage information. Next run coverage may contain garbage data!")
+					//log.Println("Failed to clear coverage information. Next run coverage may contain garbage data!")
 				}
 
 				l.processCoverageAndAppendMsg(cov)
+				l.sendUIUpdate()
 			}
 
 			if err := l.Trace.Unload(); err != nil {
-				log.Println(err, "Failed to unload script")
+				//log.Println(err, "Failed to unload script")
 			}
+
+			l.sendUIUpdate()
 		}
+	}
+}
+
+func (l *Loop) sendUIUpdate() {
+	loopData := l.Context.Value("data").(models.ContextData)
+	loopData.UIDataChan <- &models.UIData{
+		StartTime:           time.Time{},
+		LastCrashTime:       l.Status.LastCrashTime,
+		LastHangTime:        l.Status.LastHangTime,
+		CyclesDone:          l.Status.IterationNo,
+		TotalPaths:          l.Status.NewPathCount,
+		ExecSpd:             l.Status.TotalExec / 60,
+		UniqCrash:           l.Status.UniqueCrashCount,
+		UniqHangs:           l.Status.UniqueHangCount,
+		TotalExec:           l.Status.TotalExec,
+		CurrMsg:             l.CurrentMessage.Path,
+		MsgProg:             l.Status.MsgProg,
+		MessageCountInQueue: len(l.Messages),
 	}
 }
 
@@ -166,6 +207,9 @@ func (l *Loop) processCoverageAndAppendMsg(cov []trace.CoverageBlock) {
 				Energy:     l.CurrentMessage.Energy,
 				Coverage:   cov,
 			})
+			l.Status.NewPathCount += 1
+			l.Status.NewPathTime = time.Now()
+			return
 		} else {
 			covChange = false
 			for j := 0; j < len(l.Messages[i].Coverage) && !covChange; j++ {
@@ -180,12 +224,15 @@ func (l *Loop) processCoverageAndAppendMsg(cov []trace.CoverageBlock) {
 				Energy:     l.CurrentMessage.Energy,
 				Coverage:   cov,
 			})
+			l.Status.NewPathCount += 1
+			l.Status.NewPathTime = time.Now()
+			return
 		}
 	}
 }
 
 func (l *Loop) Stop() {
-	log.Println("Recieved interrupt signal. Cleaning up...")
+	//log.Println("Recieved interrupt signal. Cleaning up...")
 	if err := l.Trace.Unload(); err != nil {
 		log.Println(err, "Failed to unload script!")
 	}
@@ -193,27 +240,6 @@ func (l *Loop) Stop() {
 		log.Println(err, "Failed to stop tracing session!")
 	}
 	l.Events.StopCapture()
-}
-
-func (l *Loop) runIteration() protoiface.MessageV1 {
-	curIterData := l.Context.Value("data").(models.ContextData)
-	endpoint := fmt.Sprintf("%s:%d", curIterData.Settings.Host, curIterData.Settings.Port)
-	protoFiles := util.GetFileFullPathInDirectory(curIterData.Settings.ProtoFilesPath, []string{"Includes"})
-
-	req := communication.GIPCRequest{
-		Endpoint:          endpoint,
-		Path:              l.CurrentMessage.Path,
-		Data:              l.CurrentMessage.Message,
-		ProtoFiles:        protoFiles,
-		ProtoIncludesPath: curIterData.Settings.ProtoFilesIncludePath,
-	}
-
-	resp, err := communication.SendRequestWithMessage(req)
-	if err != nil {
-		l.handleIterationErr(err)
-		return nil
-	}
-	return resp
 }
 
 func (l *Loop) runIterationWithData(path string, data *string) (protoiface.MessageV1, error) {
@@ -323,7 +349,7 @@ func (l *Loop) calculateMessagesEnergy() error {
 	timeArr = make([]int, len(l.Messages))
 	covLenArr = make([]int, len(l.Messages))
 	fCountArr = make([]int, len(l.Messages))
-	//go l.handleProcessStart()
+	go l.handleProcessStartWithoutReporting()
 
 	for i := 0; i < len(l.Messages); i++ {
 		var hnd config.Handler
@@ -334,6 +360,13 @@ func (l *Loop) calculateMessagesEnergy() error {
 			}
 		}
 
+		ticker := time.NewTicker(1 * time.Second)
+		for range ticker.C {
+			if watcher.IsProcessRunning(l.Context) {
+				break
+			}
+		}
+		ticker.Stop()
 		if err := l.Trace.Start(procName, hnd); err != nil {
 			return errors.WithMessage(err, "Failed to start tracing session for the energy calculation!")
 		}
@@ -367,6 +400,8 @@ func (l *Loop) calculateMessagesEnergy() error {
 		return l.Messages[i].Energy > l.Messages[j].Energy
 	})
 
+	watcher.KillProcess(l.Context) //Do cleanup after the energy calculation and kill the process
+
 	return nil
 }
 
@@ -394,11 +429,20 @@ func (l *Loop) handleProcessStart() {
 				done = true
 			case response := <-startProgStatus:
 				if response != nil && response.Error != nil {
-					log.Printf("Error occurred while starting the process: %s", response.Error)
+					fmt.Println(response.Output)
+					//("Error occurred while starting the process: %s", response.Error)
 					done = true
 				}
-				if response != nil && response.Error == nil {
-					l.writeIterationCrash(response.Output, dumpPath)
+				if response != nil && response.Error == nil && len(response.Output) > 0 && response.Output != "EXIT" {
+					l.Status.LastCrashTime = time.Now()
+					l.Status.UniqueCrashCount += 1 //TODO: it's unique crash count, so we need to calculate how many UNIQUE crashes occured
+					l.writeIterationCrash(response.Output, dumpPath, *l.CurrentMessage.Message)
+					done = true
+				}
+				if response != nil && response.Error == nil && response.Output == "EXIT" {
+					l.Status.LastCrashTime = time.Now()
+					l.Status.UniqueCrashCount += 1 //TODO: it's unique crash count, so we need to calculate how many UNIQUE crashes occured
+					l.writeIterationCrash("", dumpPath, *l.CurrentMessage.Message)
 					done = true
 				}
 			default:
@@ -407,14 +451,42 @@ func (l *Loop) handleProcessStart() {
 	}
 }
 
-func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath string) {
+func (l *Loop) handleProcessStartWithoutReporting() {
+	startProgStatus := make(chan *watcher.StartProcessResponse)
+	if !watcher.IsProcessRunning(l.Context) {
+		go watcher.StartProcess(l.Context, startProgStatus)
+
+		for done := false; !done; {
+			select {
+			case <-l.Context.Done():
+				close(startProgStatus)
+				done = true
+			case response := <-startProgStatus:
+				if response != nil && response.Error != nil {
+					log.Printf("Error occurred while starting the process: %s", response.Error)
+					done = true
+				}
+				if response != nil && response.Error == nil && len(response.Output) > 0 && response.Output != "EXIT" {
+					done = true
+				}
+				if response != nil && response.Error == nil && response.Output == "EXIT" {
+					done = true
+				}
+			default:
+			}
+		}
+	}
+}
+
+func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath, lastMessage string) {
 	events := l.Events.GetEventData()
 	crashOutput := output.CrashOutput{
-		IterationNo:      l.IterationNo,
+		IterationNo:      l.Status.IterationNo,
 		MethodPath:       l.CurrentMessage.Path,
 		ExecutableOutput: processOutput,
 		ExecutableEvents: events,
 		MemoryDumpPath:   memoryDumpPath,
+		CrashMessage:     lastMessage,
 	}
 	if err := l.Output.SaveCrash(&crashOutput); err != nil {
 		log.Printf("Failed to write iteration crash dump with error: %s", err)
@@ -424,15 +496,57 @@ func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath string) {
 func (l *Loop) handleIterationErr(err error) {
 	convertedErr := util.ConvertError(err)
 	if convertedErr == models.NetworkError {
-		log.Printf("gRPC request failed with error: %s", err)
+		//log.Printf("gRPC request failed with error: %s", err)
 		if !watcher.IsProcessRunning(l.Context) {
 			go l.handleProcessStart()
+
+			ticker := time.NewTicker(1 * time.Second)
+			for range ticker.C {
+				if watcher.IsProcessRunning(l.Context) {
+					break
+				}
+			}
+			ticker.Stop()
+			l.Status.LastCrashTime = time.Now()
+			l.Status.UniqueCrashCount += 1 //TODO: it's unique crash count, so we need to calculate how many UNIQUE crashes occured
+		} else {
+			l.Status.LastHangTime = time.Now()
+			l.Status.UniqueHangCount += 1 //TODO: it's unique hang count, so we need to calculate how many UNIQUE hangs occured
+		}
+	}
+	if convertedErr == models.GRPCError {
+		//log.Printf("gRPC request failed with error: %s", err)
+		if !watcher.IsProcessRunning(l.Context) {
+			go l.handleProcessStart()
+
+			ticker := time.NewTicker(1 * time.Second)
+			for range ticker.C {
+				if watcher.IsProcessRunning(l.Context) {
+					break
+				}
+			}
+			ticker.Stop()
+			l.Status.LastCrashTime = time.Now()
+			l.Status.UniqueCrashCount += 1 //TODO: it's unique crash count, so we need to calculate how many UNIQUE crashes occured
+		} else {
+			l.Status.LastHangTime = time.Now()
+			l.Status.UniqueHangCount += 1 //TODO: it's unique hang count, so we need to calculate how many UNIQUE hangs occured
 		}
 	}
 	if convertedErr == models.UnknownError {
-		log.Printf("gRPC request failed with error: %s", err)
+		//log.Printf("gRPC request failed with error: %s", err)
 		if !watcher.IsProcessRunning(l.Context) {
 			go l.handleProcessStart()
+
+			ticker := time.NewTicker(1 * time.Second)
+			for range ticker.C {
+				if watcher.IsProcessRunning(l.Context) {
+					break
+				}
+			}
+			ticker.Stop()
+			l.Status.LastCrashTime = time.Now()
+			l.Status.UniqueCrashCount += 1 //TODO: it's unique crash count, so we need to calculate how many UNIQUE crashes occured
 		}
 	}
 }

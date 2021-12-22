@@ -3,7 +3,6 @@ package trace
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -66,6 +65,13 @@ func (t *Trace) Start(pName string, handler config.Handler) error {
 		}
 	}
 
+	if t.session != nil && t.session.IsDetached() {
+		t.session, err = t.device.Attach(p.Pid(), frida_go.SessionOptions{})
+		if err != nil {
+			return errors.Errorf("Failed to attach to the specifed process: %s", err)
+		}
+	}
+
 	scops := frida_go.ScriptOptions{
 		Name:    "Script",
 		Runtime: frida_go.FRIDA_SCRIPT_RUNTIME_QJS,
@@ -81,12 +87,12 @@ func (t *Trace) Start(pName string, handler config.Handler) error {
 	}
 
 	t.script.OnMessage(func(sjson jsoniter.Any, data []byte) {
-		fmt.Println(sjson.ToString())
+		//fmt.Println(sjson.ToString())
 	})
 
-	t.script.OnDestroyed(func() {
-		fmt.Println("Script was destroyed")
-	})
+	// t.script.OnDestroyed(func() {
+	// 	fmt.Println("Script was destroyed")
+	// })
 
 	err = t.script.Load()
 	if err != nil {
@@ -112,7 +118,6 @@ func (t *Trace) GetCoverage() ([]CoverageBlock, error) {
 	if err != nil {
 		return nil, errors.Errorf("Failed to fetch coverage information: %s", err)
 	}
-	fmt.Println(r)
 	unmarshalledCov := []RPCCoverage{}
 	err = json.Unmarshal([]byte(r), &unmarshalledCov)
 	if err != nil {
@@ -175,11 +180,11 @@ func (t *Trace) Stop() error {
 		return errors.Errorf("Failed to detach the session: %s", err)
 	}
 	t.session.Free()
-	t.device.Free()
+	//t.device.Free()
 
-	if err := t.manager.Close(); err != nil {
-		return errors.Errorf("Failed to close the manager: %s", err)
-	}
+	// if err := t.manager.Close(); err != nil {
+	// 	return errors.Errorf("Failed to close the manager: %s", err)
+	// }
 	return nil
 }
 

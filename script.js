@@ -1,5 +1,5 @@
 //console.log(JSON.stringify(Process.enumerateModules()));
-console.log("[*] Script start");
+//console.log("[*] Script start");
 var gc_cnt = 0;
 Stalker.trustThreshold = 0;
 var stalkerEvents = [];
@@ -14,9 +14,9 @@ rpc.exports = {
 			throw "Cannot find specified module!";
 		}
 
-		console.log("[*] Module: ", module.base)
+		//console.log("[*] Module: ", module.base)
 		const funAddr = module.base.add(covTarget.address);
-		console.log("[*] Module function addr: ", funAddr)
+		//console.log("[*] Module function addr: ", funAddr)
 
 		Interceptor.attach(funAddr, {
             onEnter: function (args) {
@@ -40,10 +40,10 @@ rpc.exports = {
             },
             onLeave: function (retval) {
 				let tNow = Date.now();
-				console.log("[*] Enter time: ", execTime);
+				//console.log("[*] Enter time: ", execTime);
 				execTime = tNow - execTime;
-				console.log("[*] Exit time: ", tNow);
-				console.log("[*] Execution duration: ", execTime);
+				//console.log("[*] Exit time: ", tNow);
+				//console.log("[*] Execution duration: ", execTime);
                 Stalker.unfollow(Process.getCurrentThreadId());
                 Stalker.flush();
 				gc_cnt++;
@@ -178,8 +178,3 @@ const Golang = {
 		return output;
 	},
 };
-
-//console.log(">> findExportByName() ", Module.findExportByName("server.exe", "MethodOne"))
-//console.log(">> findExportByName(null) ", Module.findExportByName(null, "MethodOne"))
-//console.log(Golang.enumerateSymbolsSync())
-//console.log(">> GOLANG findExportByName(null) ", Golang.findSymbolByName("MethodOne"))

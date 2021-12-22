@@ -6,6 +6,7 @@ type CrashOutput struct {
 	ExecutableOutput string   `json:"executableOutput"`
 	ExecutableEvents []string `json:"executableEvents"`
 	MemoryDumpPath   string   `json:"memoryDumpPath"`
+	CrashMessage     string   `json:"crashMessage"`
 }
 
 type IterationProgress struct {

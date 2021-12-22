@@ -119,7 +119,7 @@ func SendRequestWithMessage(request GIPCRequest) (proto.Message, error) {
 		cc, err := BlockingDial(ctx, network, target, creds, opts...)
 		if err != nil {
 			connError = err
-			log.Printf("Failed to dial target host %q", target)
+			//log.Printf("Failed to dial target host %q", target)
 		}
 		if err == nil && connError != nil {
 			connError = nil
@@ -184,7 +184,7 @@ func SendRequestWithMessage(request GIPCRequest) (proto.Message, error) {
 	}
 
 	if h.Status.Code() != codes.OK {
-		log.Println(&h.Status, "Got status code: ")
+		//log.Println(&h.Status, "Got status code: ")
 		return nil, h.Status.Err()
 	}
 

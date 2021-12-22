@@ -17,6 +17,7 @@ require (
 	github.com/pterm/pterm v0.12.33
 	github.com/urfave/cli/v2 v2.3.0
 	golang.org/x/net v0.0.0-20200822124328-c89045814202
+	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
 	google.golang.org/grpc v1.39.1
 	google.golang.org/protobuf v1.25.1-0.20200805231151-a709e31e5d12
 )

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lukjok/gipcfuzz/util"
 )
@@ -42,7 +43,7 @@ func (f *Filesystem) SaveCrash(data *CrashOutput) error {
 	}
 
 	pathNoSuffix := strings.Replace(data.MethodPath, "/", "_", 1)
-	fFileName := fmt.Sprintf("%d_%s.json", data.IterationNo, pathNoSuffix)
+	fFileName := fmt.Sprintf("%s_%d_%s.json", time.Now().Format("20060102150405"), data.IterationNo, pathNoSuffix)
 	return save(mData, filepath.Join(f.OutputBaseDir, CrashDirName, fFileName))
 }
 

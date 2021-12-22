@@ -3,7 +3,8 @@ package watcher
 import (
 	"context"
 	"io"
-	"log"
+
+	//"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,26 +13,34 @@ import (
 	"github.com/lukjok/gipcfuzz/models"
 )
 
-var targetPid int = 0
-
 func IsProcessRunning(ctx context.Context) bool {
 	ctxData := ctx.Value("data").(models.ContextData)
 	execName := filepath.Base(ctxData.Settings.PathToExecutable)
 
 	_, err := getProcessByName(execName)
 	if err != nil {
-		log.Printf("Failed to find process with name %s", execName)
-		targetPid = 0
+		//log.Printf("Failed to find process with name %s", execName)
 		return false
 	}
 	return true
+}
+
+func KillProcess(ctx context.Context) {
+	ctxData := ctx.Value("data").(models.ContextData)
+	execName := filepath.Base(ctxData.Settings.PathToExecutable)
+
+	proc, err := getProcessByName(execName)
+	if err != nil {
+		//log.Printf("Failed to find process with name %s", execName)
+	}
+	proc.Kill()
 }
 
 func StartProcess(ctx context.Context, status chan *StartProcessResponse) {
 	ctxData := ctx.Value("data").(models.ContextData)
 	execPath := filepath.Dir(ctxData.Settings.PathToExecutable)
 
-	log.Printf("Starting process %s", execPath)
+	//log.Printf("Starting process %s", execPath)
 	cmd := exec.Command(ctxData.Settings.PathToExecutable, ctxData.Settings.ExecutableArguments...)
 	cmd.Dir = execPath
 	stderr, _ := cmd.StderrPipe()
@@ -49,32 +58,33 @@ func StartProcess(ctx context.Context, status chan *StartProcessResponse) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Killing process...")
+			//log.Println("Killing process...")
 			cmd.Process.Kill()
 			return
 		default:
+			if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+				status <- NewStartProcessResponse(nil, "EXIT")
+			} else {
+				status <- NewStartProcessResponse(nil, buf.String())
+			}
 			cmd.Wait()
-			status <- NewStartProcessResponse(nil, buf.String())
 		}
 	}
 }
 
 func getProcessByName(executableName string) (*os.Process, error) {
-	if targetPid == 0 {
-		procList, err := processes()
-		if err != nil {
-			return nil, err
+	procList, err := processes()
+	if err != nil {
+		return nil, err
+	}
+	var pid int = 0
+	for _, value := range procList {
+		if value.Executable() == executableName {
+			pid = value.Pid()
+			break
 		}
-		var pid int = 0
-		for _, value := range procList {
-			if value.Executable() == executableName {
-				pid = value.Pid()
-				break
-			}
-		}
-		targetPid = pid
 	}
 
-	proc, err := os.FindProcess(targetPid)
+	proc, err := os.FindProcess(pid)
 	return proc, err
 }

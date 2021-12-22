@@ -6,10 +6,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-
-	"github.com/pkg/errors"
+	"reflect"
 
 	"github.com/lukjok/gipcfuzz/models"
+	"github.com/pkg/errors"
 )
 
 func GetFileNamesInDirectory(fileDir string, ignoreDirs []string) []string {
@@ -107,6 +107,10 @@ func ConvertError(err error) models.GIPCFuzzError {
 	case *net.OpError:
 		return models.NetworkError
 	default:
+		sgs := reflect.TypeOf(err).String()
+		if sgs == "*status.Error" {
+			return models.GRPCError
+		}
 		return models.UnknownError
 	}
 }
