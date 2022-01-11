@@ -1,7 +1,10 @@
 package output
 
 type CrashOutput struct {
-	IterationNo      int      `json:"IterationNo"`
+	ErrorCode        string   `json:"errorCode"`
+	ErrorCause       string   `json:"errorCause"`
+	ModuleName       string   `json:"moduleName"`
+	FaultFunction    string   `json:"faultFunction"`
 	MethodPath       string   `json:"methodPath"`
 	ExecutableOutput string   `json:"executableOutput"`
 	ExecutableEvents []string `json:"executableEvents"`

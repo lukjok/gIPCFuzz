@@ -3,6 +3,7 @@ package watcher
 import (
 	"context"
 	"io"
+	"regexp"
 
 	//"log"
 	"os"
@@ -13,16 +14,36 @@ import (
 	"github.com/lukjok/gipcfuzz/models"
 )
 
+func ParseErrorCode(output string) string {
+	re := regexp.MustCompile(`0x[a-zA-Z0-9]\{8\}?\\b`)
+	matches := re.FindStringSubmatch(output)
+	for i := 0; i < len(matches); i++ {
+		// Windows specific: try to detect error code that is related to the memory access violation
+		// TODO: This, however, may pick random memory address that starts exacly like an error code :)
+		if strings.HasPrefix(strings.ToLower(matches[i]), "0xc") {
+			return matches[i]
+		}
+	}
+	// If nothing useful was found, just return first match, for now
+	if len(matches) > 0 {
+		return matches[0]
+	}
+	return ""
+}
+
+func ExplainErrorCode(code string) string {
+	if strings.HasPrefix(strings.ToLower(code), "0xc") {
+		return memoryViolationError
+	}
+	return denialOfServiceError
+}
+
 func IsProcessRunning(ctx context.Context) bool {
 	ctxData := ctx.Value("data").(models.ContextData)
 	execName := filepath.Base(ctxData.Settings.PathToExecutable)
 
 	_, err := getProcessByName(execName)
-	if err != nil {
-		//log.Printf("Failed to find process with name %s", execName)
-		return false
-	}
-	return true
+	return err != nil
 }
 
 func KillProcess(ctx context.Context) {

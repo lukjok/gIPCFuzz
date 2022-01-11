@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"github.com/lukjok/gipcfuzz/config"
 	"github.com/lukjok/gipcfuzz/models"
 	"github.com/pkg/errors"
 )
@@ -113,6 +114,15 @@ func ConvertError(err error) models.GIPCFuzzError {
 		}
 		return models.UnknownError
 	}
+}
+
+func GetMethodHandler(method string, handlers []config.Handler) *config.Handler {
+	for i := 0; i < len(handlers); i++ {
+		if handlers[i].Method == method {
+			return &handlers[i]
+		}
+	}
+	return nil
 }
 
 func ScaleIntegers(array []int, scaleMin int, scaleMax int) {

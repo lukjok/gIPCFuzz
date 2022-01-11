@@ -43,7 +43,7 @@ func (f *Filesystem) SaveCrash(data *CrashOutput) error {
 	}
 
 	pathNoSuffix := strings.Replace(data.MethodPath, "/", "_", 1)
-	fFileName := fmt.Sprintf("%s_%d_%s.json", time.Now().Format("20060102150405"), data.IterationNo, pathNoSuffix)
+	fFileName := fmt.Sprintf("%s_%s.json", time.Now().Format("20060102150405"), pathNoSuffix)
 	return save(mData, filepath.Join(f.OutputBaseDir, CrashDirName, fFileName))
 }
 

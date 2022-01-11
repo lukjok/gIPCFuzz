@@ -479,15 +479,27 @@ func (l *Loop) handleProcessStartWithoutReporting() {
 }
 
 func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath, lastMessage string) {
+	loopData := l.Context.Value("data").(models.ContextData)
 	events := l.Events.GetEventData()
 	crashOutput := output.CrashOutput{
-		IterationNo:      l.Status.IterationNo,
+		ErrorCode:        "",
+		ErrorCause:       "",
+		ModuleName:       "",
+		FaultFunction:    "",
 		MethodPath:       l.CurrentMessage.Path,
 		ExecutableOutput: processOutput,
 		ExecutableEvents: events,
 		MemoryDumpPath:   memoryDumpPath,
 		CrashMessage:     lastMessage,
 	}
+	if methodHandler := util.GetMethodHandler(l.CurrentMessage.Path, loopData.Settings.Handlers); methodHandler != nil {
+		crashOutput.ModuleName = methodHandler.Module
+		crashOutput.FaultFunction = methodHandler.HandlerName
+	}
+	// TODO: This only performs check in the error output, not event logs, so this also can be a posibility
+	crashOutput.ErrorCode = watcher.ParseErrorCode(processOutput)
+	crashOutput.CrashMessage = watcher.ExplainErrorCode(crashOutput.ErrorCode)
+
 	if err := l.Output.SaveCrash(&crashOutput); err != nil {
 		log.Printf("Failed to write iteration crash dump with error: %s", err)
 	}
