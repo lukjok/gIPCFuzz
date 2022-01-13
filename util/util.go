@@ -125,6 +125,15 @@ func GetMethodHandler(method string, handlers []config.Handler) *config.Handler 
 	return nil
 }
 
+func GetMapKeyByValue(data map[string]int, val int) string {
+	for k, v := range data {
+		if v == val {
+			return k
+		}
+	}
+	return ""
+}
+
 func ScaleIntegers(array []int, scaleMin int, scaleMax int) {
 	var nelems, i, source_min, source_max, source_scale, target_scale, zsrc, scaled int
 	nelems = len(array)

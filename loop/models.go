@@ -26,3 +26,9 @@ type LoopStatus struct {
 	TotalExec        float64
 	MsgProg          float64
 }
+
+type DependentMsgChain struct {
+	Energy      int
+	Messages    []LoopMessage
+	DepMessages []LoopMessage
+}

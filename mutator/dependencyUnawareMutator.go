@@ -31,49 +31,46 @@ type DefaultDependencyUnawareMut struct {
 }
 
 func (m *DefaultDependencyUnawareMut) MutateField(dsc *desc.MessageDescriptor, msg *dynamic.Message, ignoredFd []string, rand *rand.Rand) (string, error) {
-	// fields := dsc.GetFields()
-	// mm.currentFieldIdx = 0
-	// mutField := fields[mm.currentFieldIdx]
+	fields := dsc.GetFields()
+	fieldCount := len(fields)
+	mutFieldIdx := rand.Intn(fieldCount)
 
-	// for i := mm.currentFieldIdx; i <= len(fields)-1; i++ {
-	// 	for _, igFd := range mm.ignoredFields {
-	// 		if mutField.GetName() == igFd {
-	// 			mm.currentFieldIdx += 1
-	// 			break
-	// 		}
-	// 	}
-	// 	break
-	// }
+	// Try 10 times to retry for other not ignored field
+	for i := 0; i < 10; i++ {
+		if isFieldIgnored(ignoredFd, fields[mutFieldIdx]) {
+			mutFieldIdx = rand.Intn(fieldCount)
+		} else {
+			break
+		}
+	}
 
-	// mutField = fields[mm.currentFieldIdx]
-	// if err := mm.mutateField(mutField); err != nil {
-	// 	return "", err
-	// }
+	// If no valid field was found, return not changed message
+	if isFieldIgnored(ignoredFd, fields[mutFieldIdx]) {
+		mMsg, err := msg.Marshal()
+		if err != nil {
+			return "", errors.WithMessage(err, "Failed to marshal the mutated message!")
+		}
 
-	// mMsg, err := mm.currentMessage.Marshal()
-	// if err != nil {
-	// 	return "", errors.WithMessage(err, "Failed to marshal the mutated message!")
-	// }
+		return hex.EncodeToString(mMsg), nil
+	}
 
-	// fmt.Println(mm.currentMessage.String())
-	// fmt.Println(hex.EncodeToString(mMsg))
-	return "", nil
+	if err := mutateField(fields[mutFieldIdx], msg, rand); err != nil {
+		return "", err
+	}
+
+	mMsg, err := msg.Marshal()
+	if err != nil {
+		return "", errors.WithMessage(err, "Failed to marshal the mutated message!")
+	}
+
+	return hex.EncodeToString(mMsg), nil
 }
 
 func (m *DefaultDependencyUnawareMut) MutateMessage(dsc *desc.MessageDescriptor, msg *dynamic.Message, ignoredFd []string, rand *rand.Rand) (string, error) {
 	fields := dsc.GetFields()
-	var skipField bool = false
 
 	for _, field := range fields {
-		skipField = false
-		for _, igFd := range ignoredFd {
-			if field.GetName() == igFd {
-				skipField = true
-				break
-			}
-		}
-
-		if skipField {
+		if isFieldIgnored(ignoredFd, field) {
 			continue
 		}
 
@@ -88,6 +85,13 @@ func (m *DefaultDependencyUnawareMut) MutateMessage(dsc *desc.MessageDescriptor,
 	}
 
 	return hex.EncodeToString(mMsg), nil
+}
+
+func isFieldIgnored(ignoredFd []string, fd *desc.FieldDescriptor) bool {
+	for _, igFd := range ignoredFd {
+		return fd.GetName() == igFd
+	}
+	return false
 }
 
 func mutateField(field *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {

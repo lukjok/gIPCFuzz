@@ -43,7 +43,7 @@ func IsProcessRunning(ctx context.Context) bool {
 	execName := filepath.Base(ctxData.Settings.PathToExecutable)
 
 	_, err := getProcessByName(execName)
-	return err != nil
+	return err == nil
 }
 
 func KillProcess(ctx context.Context) {

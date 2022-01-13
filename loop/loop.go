@@ -34,6 +34,7 @@ type LoopManager interface {
 type Loop struct {
 	Context        context.Context
 	Messages       []LoopMessage
+	MessageChains  []DependentMsgChain
 	ValueDeps      []packet.MsgValDep
 	MsgDeps        [][]float32
 	MsgDepMap      map[string]int
@@ -76,6 +77,136 @@ func (l *Loop) Run() {
 	loopData := l.Context.Value("data").(models.ContextData)
 	l.initializeLoop()
 
+	// Initializing new trace manager since this helps to prevent Frida crashes
+	tm, err := trace.NewTraceManager()
+	if err != nil {
+		log.Fatalf("Failed to initialize tracing manager!")
+	}
+	l.Trace = tm
+
+	if loopData.Settings.DoDependencyUnawareSending {
+		l.doDependencyUnawareSending(rSrc)
+	} else {
+		l.doDependencyAwareSending(rSrc)
+	}
+}
+
+func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
+	loopData := l.Context.Value("data").(models.ContextData)
+	for idx, mChain := range l.MessageChains {
+		select {
+		case <-l.Context.Done():
+			l.Stop()
+			return
+		default:
+			time.Sleep(2 * time.Second)
+			l.Status.IterationNo = idx + 1
+			l.CurrentMessage = &mChain.Messages[len(mChain.Messages)-1]
+			mutMgr := new(mutator.MutatorManager)
+			procName := filepath.Base(loopData.Settings.PathToExecutable)
+
+			var mutStrategy mutator.MutationStrategy
+			if loopData.Settings.DoSingleFieldMutation {
+				mutStrategy = mutator.SingleField
+			}
+			mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{}, mutStrategy)
+
+			if len(mChain.Messages) == 1 {
+				continue
+			}
+
+			if len(*l.CurrentMessage.Message) == 0 {
+				continue
+			}
+
+			buf, err := hex.DecodeString(*l.CurrentMessage.Message)
+			if err != nil {
+				continue
+			}
+			message := dynamic.NewMessage(l.CurrentMessage.Descriptor)
+			if err := message.Unmarshal(buf); err != nil {
+				continue
+			}
+
+			var hnd config.Handler
+			for j := 0; j < len(loopData.Settings.Handlers); j++ {
+				if loopData.Settings.Handlers[j].Method == l.CurrentMessage.Path {
+					hnd = loopData.Settings.Handlers[j]
+					break
+				}
+			}
+
+			ticker := time.NewTicker(1 * time.Second)
+			for range ticker.C {
+				if watcher.IsProcessRunning(l.Context) {
+					break
+				}
+			}
+			ticker.Stop()
+
+			if len(mChain.Messages) > 1 {
+				// Send all messages in order before the last one
+				l.sendFirstChainMessages(mChain.Messages[:len(mChain.Messages)-1])
+			}
+
+			if err := l.Trace.Start(procName, hnd); err != nil {
+				//log.Println(err, "Failed to start tracing session for fuzzed message!")
+			}
+
+			// Parse dependent messages
+			depMsgs := make([]dynamic.Message, 0, 1)
+			for i := 0; i < len(mChain.DepMessages); i++ {
+				// If bad dependent message appears, skip it (this should be a non existant case)
+				if len(*mChain.DepMessages[i].Message) == 0 {
+					continue
+				}
+
+				buf, err := hex.DecodeString(*mChain.DepMessages[i].Message)
+				if err != nil {
+					continue
+				}
+				message := dynamic.NewMessage(mChain.DepMessages[i].Descriptor)
+				if err := message.Unmarshal(buf); err != nil {
+					continue
+				}
+				depMsgs = append(depMsgs, *message)
+			}
+
+			for i := l.CurrentMessage.Energy; i != 0; i-- {
+				mutMsg, err := mutMgr.DoAwareMutation(l.CurrentMessage.Descriptor, message, l.ValueDeps, depMsgs)
+				if err != nil {
+					break
+				}
+
+				l.CurrentMessage.Message = &mutMsg
+				_, rErr := l.runIterationWithData(l.CurrentMessage.Path, &mutMsg)
+
+				l.Status.MsgProg = 100 - float64((100*i)/l.CurrentMessage.Energy)
+				l.Status.TotalExec += 1
+
+				if rErr != nil {
+					l.handleIterationErr(rErr)
+				}
+
+				if err := l.Trace.ClearCoverage(); err != nil {
+					// 	//log.Println("Failed to clear coverage information. Next run coverage may contain garbage data!")
+				}
+
+				//l.processCoverageAndAppendMsg(cov)
+				l.sendUIUpdate()
+			}
+
+			if err := l.Trace.Unload(); err != nil {
+				//log.Println(err, "Failed to unload script")
+			}
+
+			l.sendUIUpdate()
+		}
+	}
+}
+
+func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
+	loopData := l.Context.Value("data").(models.ContextData)
 	for idx, message := range l.Messages {
 		select {
 		case <-l.Context.Done():
@@ -87,7 +218,12 @@ func (l *Loop) Run() {
 			l.CurrentMessage = &message
 			mutMgr := new(mutator.MutatorManager)
 			procName := filepath.Base(loopData.Settings.PathToExecutable)
-			mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{})
+
+			var mutStrategy mutator.MutationStrategy
+			if loopData.Settings.DoSingleFieldMutation {
+				mutStrategy = mutator.SingleField
+			}
+			mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{}, mutStrategy)
 
 			if len(*l.CurrentMessage.Message) == 0 {
 				continue
@@ -232,7 +368,6 @@ func (l *Loop) processCoverageAndAppendMsg(cov []trace.CoverageBlock) {
 }
 
 func (l *Loop) Stop() {
-	//log.Println("Recieved interrupt signal. Cleaning up...")
 	if err := l.Trace.Unload(); err != nil {
 		log.Println(err, "Failed to unload script!")
 	}
@@ -240,6 +375,15 @@ func (l *Loop) Stop() {
 		log.Println(err, "Failed to stop tracing session!")
 	}
 	l.Events.StopCapture()
+}
+
+func (l *Loop) sendFirstChainMessages(msgs []LoopMessage) error {
+	for i := 0; i < len(msgs); i++ {
+		if _, err := l.runIterationWithData(msgs[i].Path, msgs[i].Message); err != nil {
+			return errors.WithMessage(err, "Error occured while sending chain message!")
+		}
+	}
+	return nil
 }
 
 func (l *Loop) runIterationWithData(path string, data *string) (protoiface.MessageV1, error) {
@@ -293,6 +437,74 @@ func (l *Loop) getMesasageEnergyData(path string, data *string) (int, []trace.Co
 	return t, cov, nil
 }
 
+func (l *Loop) getMesasageChainEnergyData(msgChain DependentMsgChain, handler config.Handler) (int, []trace.CoverageBlock, error) {
+	curIterData := l.Context.Value("data").(models.ContextData)
+	endpoint := fmt.Sprintf("%s:%d", curIterData.Settings.Host, curIterData.Settings.Port)
+	protoFiles := util.GetFileFullPathInDirectory(curIterData.Settings.ProtoFilesPath, []string{"Includes"})
+	procName := filepath.Base(curIterData.Settings.PathToExecutable)
+
+	if len(msgChain.Messages) == 1 {
+		if err := l.Trace.Start(procName, handler); err != nil {
+			return 0, nil, errors.WithMessage(err, "Failed to start tracing session for the energy calculation!")
+		}
+
+		t, cov, err := l.getMesasageEnergyData(msgChain.Messages[0].Path, msgChain.Messages[0].Message)
+		if err != nil {
+			return t, cov, errors.WithMessage(err, "Failed to perform energy calculation!")
+		}
+
+		if err := l.Trace.Unload(); err != nil {
+			return t, cov, errors.WithMessage(err, "Failed to unload script however energy calculation is finished!")
+		}
+		return t, cov, nil
+	}
+
+	for i := 0; i < len(msgChain.Messages)-1; i++ {
+		if _, err := l.runIterationWithData(msgChain.Messages[i].Path, msgChain.Messages[i].Message); err != nil {
+			return 0, nil, errors.WithMessage(err, "Error occured while sending trailing chain message!")
+		}
+	}
+
+	lastMsg := msgChain.Messages[len(msgChain.Messages)-1]
+
+	req := communication.GIPCRequest{
+		Endpoint:          endpoint,
+		Path:              lastMsg.Path,
+		Data:              lastMsg.Message,
+		ProtoFiles:        protoFiles,
+		ProtoIncludesPath: curIterData.Settings.ProtoFilesIncludePath,
+	}
+
+	if err := l.Trace.Start(procName, handler); err != nil {
+		return 0, nil, errors.WithMessage(err, "Failed to start tracing session for the energy calculation!")
+	}
+
+	_, err := communication.SendRequestWithMessage(req)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	cov, err := l.Trace.GetCoverage()
+	if err != nil {
+		return 0, nil, errors.WithMessage(err, "Failed to get data for message energy calculation!")
+	}
+
+	t, err := l.Trace.GetLastExecTime()
+	if err != nil {
+		return 0, nil, errors.WithMessage(err, "Failed to get data for message energy calculation!")
+	}
+
+	if err := l.Trace.ClearCoverage(); err != nil {
+		log.Println("Failed to clear coverage information. Next run coverage may contain garbage data!")
+	}
+
+	if err := l.Trace.Unload(); err != nil {
+		return t, cov, errors.WithMessage(err, "Failed to unload script however energy calculation is finished!")
+	}
+
+	return t, cov, nil
+}
+
 func (l *Loop) initializeLoop() {
 	loopData := l.Context.Value("data").(models.ContextData)
 	messages := packet.GetParsedMessages(
@@ -304,12 +516,20 @@ func (l *Loop) initializeLoop() {
 		log.Fatal("No messages were processed! Bailing out...")
 	}
 
-	l.MsgDeps, l.MsgDepMap = packet.CalculateRelationMatrix(messages)
-	l.ValueDeps = packet.CalculateReqResRelations(messages)
-	l.prepareMessages(messages)
+	if loopData.Settings.DoDependencyUnawareSending {
+		l.prepareMessages(messages)
 
-	if err := l.calculateMessagesEnergy(); err != nil {
-		log.Printf("Error occured while initializing the Loop: %s", err)
+		if err := l.calculateMessagesEnergy(); err != nil {
+			log.Printf("Error occured while initializing the Loop: %s", err)
+		}
+	} else {
+		l.MsgDeps, l.MsgDepMap = packet.CalculateRelationMatrix(messages)
+		l.ValueDeps = packet.CalculateReqResRelations(messages)
+		l.prepareMessageChains(messages)
+
+		if err := l.calculateMessageChainEnergy(); err != nil {
+			log.Printf("Error occured while initializing the Loop: %s", err)
+		}
 	}
 
 	if err := l.Events.NewEventManager(events.DefaultWindowsQuery); err != nil {
@@ -317,7 +537,7 @@ func (l *Loop) initializeLoop() {
 	}
 
 	l.Events.StartCapture()
-	go l.handleProcessStart()
+	//go l.handleProcessStart()
 
 	if loopData.Settings.DryRun {
 		log.Println("Performing a dry run before starting a fuzzing process...")
@@ -325,6 +545,102 @@ func (l *Loop) initializeLoop() {
 			log.Fatal("Dry run enabled and the process failed to respond to the valid message! Bailing out")
 		}
 	}
+}
+
+func (l *Loop) prepareMessageChains(msgs []packet.ProtoByteMsg) {
+	msgChains := make([]DependentMsgChain, 0, 1)
+	rMsgChains := make([][]string, 0, 1)
+	// Calculate longest chain and then make shorter ones by reducing messages by one
+	// Adapt it if chain is broken: finish one chain creation and start another one
+	var lastMsgIdx int = 0
+	var isChainBroken bool = true
+	longestChain := make([]string, 0, 1)
+	for i := 0; i < len(l.MsgDeps); i++ {
+		isChainBroken = true
+		for j := 0; j < len(l.MsgDeps); j++ {
+			if l.MsgDeps[i][j] >= 0.5 && i != j {
+				name1 := util.GetMapKeyByValue(l.MsgDepMap, i)
+				longestChain = append(longestChain, name1)
+				lastMsgIdx = j
+				isChainBroken = false
+			}
+		}
+		if isChainBroken {
+			// Add last message of the chain
+			lastName := util.GetMapKeyByValue(l.MsgDepMap, lastMsgIdx)
+			longestChain = append(longestChain, lastName)
+			rMsgChains = append(rMsgChains, longestChain)
+			longestChain = nil
+		}
+	}
+	// Add last message of the chain
+	lastName := util.GetMapKeyByValue(l.MsgDepMap, lastMsgIdx)
+	longestChain = append(longestChain, lastName)
+	rMsgChains = append(rMsgChains, longestChain)
+	longestChain = nil
+
+	for i := 0; i < len(rMsgChains); i++ {
+		for j := 0; j < len(rMsgChains[i]); j++ {
+			lMsgs := make([]LoopMessage, 0, 1)
+			for k := 0; k < j+1; k++ {
+				if pbMsg := getMessageByPathName(msgs, rMsgChains[i][k]); pbMsg != nil {
+					lMsgs = append(lMsgs, LoopMessage{
+						Path:       pbMsg.Path,
+						Message:    pbMsg.Message,
+						Descriptor: pbMsg.Descriptor,
+						Energy:     0,
+						Coverage:   make([]trace.CoverageBlock, 0, 1),
+					})
+				}
+			}
+			dMsgs := make([]LoopMessage, 0, 1)
+			lastMsgName := lMsgs[len(lMsgs)-1].Descriptor.GetName()
+			for i := 0; i < len(l.ValueDeps); i++ {
+				var neededmsgName string = ""
+				if l.ValueDeps[i].Msg1 == lastMsgName {
+					neededmsgName = l.ValueDeps[i].Msg2
+				}
+				if l.ValueDeps[i].Msg2 == lastMsgName {
+					neededmsgName = l.ValueDeps[i].Msg1
+				}
+				if len(neededmsgName) > 0 {
+					if pbMsg := getMessageByPathNamesInOrder(msgs, neededmsgName, lastMsgName); pbMsg != nil {
+						dMsgs = append(dMsgs, LoopMessage{
+							Path:       pbMsg.Path,
+							Message:    pbMsg.Message,
+							Descriptor: pbMsg.Descriptor,
+							Energy:     0,
+							Coverage:   make([]trace.CoverageBlock, 0, 1),
+						})
+					}
+				}
+			}
+			msgChains = append(msgChains, DependentMsgChain{
+				Energy:      0,
+				Messages:    lMsgs,
+				DepMessages: dMsgs,
+			})
+		}
+	}
+	l.MessageChains = msgChains
+}
+
+func getMessageByPathName(msgs []packet.ProtoByteMsg, path string) *packet.ProtoByteMsg {
+	for i := 0; i < len(msgs); i++ {
+		if msgs[i].Path == path {
+			return &msgs[i]
+		}
+	}
+	return nil
+}
+
+func getMessageByPathNamesInOrder(msgs []packet.ProtoByteMsg, name1 string, name2 string) *packet.ProtoByteMsg {
+	for i := 0; i < len(msgs)-1; i++ {
+		if msgs[i].Descriptor.GetName() == name1 && msgs[i+1].Descriptor.GetName() == name2 {
+			return &msgs[i]
+		}
+	}
+	return nil
 }
 
 func (l *Loop) prepareMessages(msgs []packet.ProtoByteMsg) {
@@ -339,6 +655,63 @@ func (l *Loop) prepareMessages(msgs []packet.ProtoByteMsg) {
 			Coverage:   make([]trace.CoverageBlock, 0, 1),
 		})
 	}
+}
+
+func (l *Loop) calculateMessageChainEnergy() error {
+	loopData := l.Context.Value("data").(models.ContextData)
+
+	var timeArr, covLenArr, fCountArr []int
+	timeArr = make([]int, len(l.MessageChains))
+	covLenArr = make([]int, len(l.MessageChains))
+	fCountArr = make([]int, len(l.MessageChains))
+	//go l.handleProcessStartWithoutReporting()
+
+	for i := 0; i < len(l.MessageChains); i++ {
+		var hnd config.Handler
+		for j := 0; j < len(loopData.Settings.Handlers); j++ {
+			if loopData.Settings.Handlers[j].Method == l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Path {
+				hnd = loopData.Settings.Handlers[j]
+				break
+			}
+		}
+
+		// ticker := time.NewTicker(1 * time.Second)
+		// for range ticker.C {
+		// 	if watcher.IsProcessRunning(l.Context) {
+		// 		break
+		// 	}
+		// }
+		// ticker.Stop()
+
+		tExec, cov, _ := l.getMesasageChainEnergyData(l.MessageChains[i], hnd)
+		l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Coverage = append(l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Coverage, cov...)
+		timeArr[i] = tExec
+		covLenArr[i] = len(cov)
+		fCountArr[i] = packet.GetMessageFieldCount(l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Descriptor)
+	}
+
+	if err := l.Trace.Stop(); err != nil {
+		return errors.WithMessage(err, "Failed to stop tracing session however energy calculation is finished!")
+	}
+
+	util.ScaleIntegers(covLenArr, 1, 10)
+	util.ScaleIntegers(fCountArr, 1, 10)
+	util.ScaleIntegersReverse(timeArr, 1, 10)
+
+	for i := 0; i < len(l.MessageChains); i++ {
+		l.MessageChains[i].Energy += covLenArr[i]
+		l.MessageChains[i].Energy += fCountArr[i]
+		l.MessageChains[i].Energy += timeArr[i]
+		l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Energy = l.MessageChains[i].Energy
+	}
+
+	sort.Slice(l.MessageChains, func(i, j int) bool {
+		return l.MessageChains[i].Energy > l.MessageChains[j].Energy
+	})
+
+	watcher.KillProcess(l.Context) //Do cleanup after the energy calculation and kill the process
+
+	return nil
 }
 
 func (l *Loop) calculateMessagesEnergy() error {
