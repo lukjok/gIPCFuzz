@@ -15,8 +15,8 @@ import (
 )
 
 func ParseErrorCode(output string) string {
-	re := regexp.MustCompile(`0x[a-zA-Z0-9]\{8\}?\\b`)
-	matches := re.FindStringSubmatch(output)
+	re := regexp.MustCompile(`(?m)0x[a-zA-Z0-9]{8}\b`)
+	matches := re.FindAllString(output, -1)
 	for i := 0; i < len(matches); i++ {
 		// Windows specific: try to detect error code that is related to the memory access violation
 		// TODO: This, however, may pick random memory address that starts exacly like an error code :)
@@ -59,11 +59,14 @@ func KillProcess(ctx context.Context) {
 
 func StartProcess(ctx context.Context, status chan *StartProcessResponse) {
 	ctxData := ctx.Value("data").(models.ContextData)
-	execPath := filepath.Dir(ctxData.Settings.PathToExecutable)
+	//execPath := filepath.Dir(ctxData.Settings.PathToExecutable)
+	arguments := []string{"Start-Process", ctxData.Settings.PathToExecutable}
+	arguments = append(arguments, ctxData.Settings.ExecutableArguments...)
 
 	//log.Printf("Starting process %s", execPath)
-	cmd := exec.Command(ctxData.Settings.PathToExecutable, ctxData.Settings.ExecutableArguments...)
-	cmd.Dir = execPath
+	cmd := exec.Command("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", arguments...)
+	//cmd.Stderr = os.Stderr
+	//cmd.Stdout = os.Stdout
 	stderr, _ := cmd.StderrPipe()
 	if err := cmd.Start(); err != nil {
 		status <- NewStartProcessResponse(err, "")

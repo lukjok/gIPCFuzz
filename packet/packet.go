@@ -140,7 +140,7 @@ func (h *httpStream) run() {
 		if err == io.EOF {
 			return
 		} else if err != nil {
-			log.Print("Error reading frame", h.net, h.transport, ":", err)
+			//log.Print("Error reading frame", h.net, h.transport, ":", err)
 			continue
 		}
 
@@ -156,7 +156,7 @@ func (h *httpStream) run() {
 		}
 
 		if err != nil {
-			log.Print("Error reading frame", h.net, h.transport, ":", err)
+			//log.Print("Error reading frame", h.net, h.transport, ":", err)
 			continue
 		}
 
@@ -332,9 +332,9 @@ func dumpProto(net string, id uint32, path string, buf []byte) {
 	var out bytes.Buffer
 	if err := decodeProto(&out, buf, 0); err != nil {
 		// decode failed
-		log.Printf("%s %d %s %q", net, id, path, buf)
+		//log.Printf("%s %d %s %q", net, id, path, buf)
 	} else {
-		log.Printf("%s %d %s\n%s", net, id, path, out.String())
+		//log.Printf("%s %d %s\n%s", net, id, path, out.String())
 
 	}
 }

@@ -146,8 +146,13 @@ func mutateField(field *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.R
 }
 
 func mutateString(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
-	strVal := msg.GetField(fd)
-	newVal := strings.Repeat(strVal.(string), rand.Intn(10))
+	strVal := msg.GetField(fd).(string)
+	cNum := rand.Intn(10)
+	if cNum == 0 {
+		cNum += 1
+	}
+
+	newVal := strings.Repeat(strVal, cNum)
 	if len(newVal) > int(math.Pow(2, 32)) { // 2^32 is the max protobuf string length
 		if err := msg.TryClearField(fd); err != nil {
 			return errors.WithMessage(err, "Failed to clear string field value")
@@ -220,7 +225,12 @@ func mutateUint64(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Ran
 
 func mutateBytes(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
 	byteVal := msg.GetField(fd).([]byte)
-	newVal := bytes.Repeat(byteVal, rand.Intn(10))
+	cNum := rand.Intn(10)
+	if cNum == 0 {
+		cNum += 1
+	}
+
+	newVal := bytes.Repeat(byteVal, cNum)
 	if len(newVal) > int(math.Pow(2, 32)) { // 2^32 is the max protobuf bytes length
 		if err := msg.TryClearField(fd); err != nil {
 			return errors.WithMessage(err, "Failed to clear bytes field value")

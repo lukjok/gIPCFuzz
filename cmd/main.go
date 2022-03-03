@@ -16,7 +16,6 @@ import (
 )
 
 func main() {
-	//pterm.DefaultCenter.Println(pterm.Red("gIPCFuzz 0.1 by Lukas Jokubauskas"))
 	area, _ := pterm.DefaultArea.WithCenter().Start()
 	ticker := time.NewTicker(1 * time.Second)
 	done := make(chan bool)

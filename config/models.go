@@ -13,6 +13,7 @@ type Configuration struct {
 	DryRun                     bool      `json:"performDryRun"`
 	DoSingleFieldMutation      bool      `json:"singleFieldMutation"`
 	DoDependencyUnawareSending bool      `json:"dependencyUnawareSending"`
+	UseInstrumentation         bool      `json:"useIntrumentation"`
 	ProtoFilesPath             string    `json:"protoFilesPath"`
 	ProtoFilesIncludePath      []string  `json:"protoFilesIncludePath"`
 	PcapFilePath               string    `json:"pcapFilePath"`

@@ -41,6 +41,7 @@ func (mm *MutatorManager) New(sMsgMut SingleMessageMutator, mMsgMut MultiMessage
 	mm.randSource = rSrc
 	mm.rand = rand.New(mm.randSource)
 	mm.strategy = strategy
+	mm.rand.Seed(rSrc.Int63())
 }
 
 func (mm *MutatorManager) DoMutation(dsc *desc.MessageDescriptor, msg *dynamic.Message) (string, error) {

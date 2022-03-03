@@ -20,6 +20,7 @@ func (m *DefaultDependencyAwareMut) MutateField(dsc *desc.MessageDescriptor, msg
 	msgName := dsc.GetName()
 	internalIgFields := make([]string, 0, 1)
 
+	// TODO: Need to do a refactor of this mess
 	for i := 0; i < len(valDeps); i++ {
 		if valDeps[i].Msg1 == msgName || valDeps[i].Msg2 == msgName {
 			for j := 0; j < len(fields); j++ {
@@ -74,6 +75,7 @@ func (m *DefaultDependencyAwareMut) MutateMessage(dsc *desc.MessageDescriptor, m
 	msgName := dsc.GetName()
 	internalIgFields := make([]string, 0, 1)
 
+	// TODO: Need to do a refactor of this mess
 	for i := 0; i < len(valDeps); i++ {
 		if valDeps[i].Msg1 == msgName || valDeps[i].Msg2 == msgName {
 			for j := 0; j < len(fields); j++ {

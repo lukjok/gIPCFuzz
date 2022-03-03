@@ -87,12 +87,7 @@ func (t *Trace) Start(pName string, handler config.Handler) error {
 	}
 
 	t.script.OnMessage(func(sjson jsoniter.Any, data []byte) {
-		//fmt.Println(sjson.ToString())
 	})
-
-	// t.script.OnDestroyed(func() {
-	// 	fmt.Println("Script was destroyed")
-	// })
 
 	err = t.script.Load()
 	if err != nil {
@@ -180,11 +175,23 @@ func (t *Trace) Stop() error {
 		return errors.Errorf("Failed to detach the session: %s", err)
 	}
 	t.session.Free()
-	//t.device.Free()
+	return nil
+}
 
-	// if err := t.manager.Close(); err != nil {
-	// 	return errors.Errorf("Failed to close the manager: %s", err)
-	// }
+func (t *Trace) Cleanup() error {
+	if t.session.IsValid() && !t.session.IsDetached() {
+		if err := t.session.Detach(); err != nil {
+			return errors.Errorf("Failed to detach the session: %s", err)
+		}
+	}
+	if t.script.IsValid() && !t.script.IsDestroyed() {
+		t.script.Free()
+	}
+	t.device.Free()
+	if err := t.manager.Close(); err != nil {
+		return errors.Errorf("Failed to close the manager: %s", err)
+	}
+	t.manager.Free()
 	return nil
 }
 

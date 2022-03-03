@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -32,6 +33,7 @@ type LoopManager interface {
 }
 
 type Loop struct {
+	Logger         *util.Log
 	Context        context.Context
 	Messages       []LoopMessage
 	MessageChains  []DependentMsgChain
@@ -48,25 +50,38 @@ type Loop struct {
 
 func NewLoop(ctx context.Context) *Loop {
 	ctxData := ctx.Value("data").(models.ContextData)
-	tm, err := trace.NewTraceManager()
-	if err != nil {
-		log.Fatalf("Failed to initialize tracing manager!")
+
+	var logger *util.Log = util.NewLogger("log.txt")
+	logger.LogInfo("Logger was initialized!")
+
+	var traceManager *trace.Trace
+	var tmError error
+
+	if ctxData.Settings.UseInstrumentation {
+		traceManager, tmError = trace.NewTraceManager()
+		if tmError != nil {
+			logger.LogError("Failed to initialize tracing manager!")
+			os.Exit(1)
+		}
 	}
+
 	if ctxData.Settings.PerformMemoryDump {
 		return &Loop{
+			Logger:  logger,
 			Context: ctx,
 			Status:  &LoopStatus{},
 			Output:  output.NewFilesystem(ctxData.Settings.OutputPath),
 			Events:  &events.Events{},
-			Trace:   tm,
+			Trace:   traceManager,
 			MemDump: memdump.NewMemoryDump(ctxData.Settings.PathToExecutable, ctxData.Settings.OutputPath, ctxData.Settings.DumpExecutablePath),
 		}
 	} else {
 		return &Loop{
+			Logger:  logger,
 			Context: ctx,
 			Status:  &LoopStatus{},
 			Output:  output.NewFilesystem(ctxData.Settings.OutputPath),
-			Trace:   tm,
+			Trace:   traceManager,
 			Events:  &events.Events{},
 		}
 	}
@@ -76,14 +91,12 @@ func (l *Loop) Run() {
 	rSrc := rand.NewSource(time.Hour.Nanoseconds())
 	loopData := l.Context.Value("data").(models.ContextData)
 	l.initializeLoop()
-
-	// Initializing new trace manager since this helps to prevent Frida crashes
-	tm, err := trace.NewTraceManager()
-	if err != nil {
-		log.Fatalf("Failed to initialize tracing manager!")
-	}
-	l.Trace = tm
-
+	// // Initializing new trace manager since this helps to prevent Frida crashes
+	// tm, err := trace.NewTraceManager()
+	// if err != nil {
+	// 	log.Fatalf("Failed to initialize tracing manager!")
+	// }
+	// l.Trace = tm
 	if loopData.Settings.DoDependencyUnawareSending {
 		l.doDependencyUnawareSending(rSrc)
 	} else {
@@ -92,6 +105,7 @@ func (l *Loop) Run() {
 }
 
 func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
+	l.Logger.LogInfo("Starting dependency aware sending!")
 	loopData := l.Context.Value("data").(models.ContextData)
 	for idx, mChain := range l.MessageChains {
 		select {
@@ -99,11 +113,9 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 			l.Stop()
 			return
 		default:
-			time.Sleep(2 * time.Second)
 			l.Status.IterationNo = idx + 1
 			l.CurrentMessage = &mChain.Messages[len(mChain.Messages)-1]
 			mutMgr := new(mutator.MutatorManager)
-			procName := filepath.Base(loopData.Settings.PathToExecutable)
 
 			var mutStrategy mutator.MutationStrategy
 			if loopData.Settings.DoSingleFieldMutation {
@@ -121,19 +133,13 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 
 			buf, err := hex.DecodeString(*l.CurrentMessage.Message)
 			if err != nil {
+				l.Logger.LogError(err.Error())
 				continue
 			}
 			message := dynamic.NewMessage(l.CurrentMessage.Descriptor)
 			if err := message.Unmarshal(buf); err != nil {
+				l.Logger.LogError(err.Error())
 				continue
-			}
-
-			var hnd config.Handler
-			for j := 0; j < len(loopData.Settings.Handlers); j++ {
-				if loopData.Settings.Handlers[j].Method == l.CurrentMessage.Path {
-					hnd = loopData.Settings.Handlers[j]
-					break
-				}
 			}
 
 			ticker := time.NewTicker(1 * time.Second)
@@ -149,8 +155,20 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 				l.sendFirstChainMessages(mChain.Messages[:len(mChain.Messages)-1])
 			}
 
-			if err := l.Trace.Start(procName, hnd); err != nil {
-				//log.Println(err, "Failed to start tracing session for fuzzed message!")
+			if loopData.Settings.UseInstrumentation {
+				procName := filepath.Base(loopData.Settings.PathToExecutable)
+
+				var hnd config.Handler
+				for j := 0; j < len(loopData.Settings.Handlers); j++ {
+					if loopData.Settings.Handlers[j].Method == l.CurrentMessage.Path {
+						hnd = loopData.Settings.Handlers[j]
+						break
+					}
+				}
+
+				if err := l.Trace.Start(procName, hnd); err != nil {
+					l.Logger.LogError(err.Error())
+				}
 			}
 
 			// Parse dependent messages
@@ -163,18 +181,30 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 
 				buf, err := hex.DecodeString(*mChain.DepMessages[i].Message)
 				if err != nil {
+					l.Logger.LogError(err.Error())
 					continue
 				}
 				message := dynamic.NewMessage(mChain.DepMessages[i].Descriptor)
 				if err := message.Unmarshal(buf); err != nil {
+					l.Logger.LogError(err.Error())
 					continue
 				}
 				depMsgs = append(depMsgs, *message)
 			}
 
+			var programCrashed bool = false
+
 			for i := l.CurrentMessage.Energy; i != 0; i-- {
+
+				if programCrashed && len(mChain.Messages) > 1 {
+					// Send all messages in order before the last one
+					l.sendFirstChainMessages(mChain.Messages[:len(mChain.Messages)-1])
+					programCrashed = false
+				}
+
 				mutMsg, err := mutMgr.DoAwareMutation(l.CurrentMessage.Descriptor, message, l.ValueDeps, depMsgs)
 				if err != nil {
+					l.Logger.LogError(err.Error())
 					break
 				}
 
@@ -185,19 +215,30 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 				l.Status.TotalExec += 1
 
 				if rErr != nil {
+					l.Logger.LogError(err.Error())
 					l.handleIterationErr(rErr)
+					programCrashed = true
 				}
 
-				if err := l.Trace.ClearCoverage(); err != nil {
-					// 	//log.Println("Failed to clear coverage information. Next run coverage may contain garbage data!")
+				if loopData.Settings.UseInstrumentation {
+					cov, err := l.Trace.GetCoverage()
+					if err != nil {
+						l.Logger.LogError(err.Error())
+					}
+
+					l.processCoverageAndAppendMsg(cov)
+					if err := l.Trace.ClearCoverage(); err != nil {
+						l.Logger.LogError(err.Error())
+					}
 				}
 
-				//l.processCoverageAndAppendMsg(cov)
 				l.sendUIUpdate()
 			}
 
-			if err := l.Trace.Unload(); err != nil {
-				//log.Println(err, "Failed to unload script")
+			if loopData.Settings.UseInstrumentation {
+				if err := l.Trace.Unload(); err != nil {
+					l.Logger.LogError(err.Error())
+				}
 			}
 
 			l.sendUIUpdate()
@@ -206,6 +247,7 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 }
 
 func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
+	l.Logger.LogInfo("Starting dependency aware sending!")
 	loopData := l.Context.Value("data").(models.ContextData)
 	for idx, message := range l.Messages {
 		select {
@@ -213,11 +255,9 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 			l.Stop()
 			return
 		default:
-			time.Sleep(2 * time.Second)
 			l.Status.IterationNo = idx + 1
 			l.CurrentMessage = &message
 			mutMgr := new(mutator.MutatorManager)
-			procName := filepath.Base(loopData.Settings.PathToExecutable)
 
 			var mutStrategy mutator.MutationStrategy
 			if loopData.Settings.DoSingleFieldMutation {
@@ -231,19 +271,13 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 
 			buf, err := hex.DecodeString(*l.CurrentMessage.Message)
 			if err != nil {
+				l.Logger.LogError(err.Error())
 				continue
 			}
 			message := dynamic.NewMessage(l.CurrentMessage.Descriptor)
 			if err := message.Unmarshal(buf); err != nil {
+				l.Logger.LogError(err.Error())
 				continue
-			}
-
-			var hnd config.Handler
-			for j := 0; j < len(loopData.Settings.Handlers); j++ {
-				if loopData.Settings.Handlers[j].Method == l.CurrentMessage.Path {
-					hnd = loopData.Settings.Handlers[j]
-					break
-				}
 			}
 
 			ticker := time.NewTicker(1 * time.Second)
@@ -254,13 +288,26 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 			}
 			ticker.Stop()
 
-			if err := l.Trace.Start(procName, hnd); err != nil {
-				//log.Println(err, "Failed to start tracing session for fuzzed message!")
+			if loopData.Settings.UseInstrumentation {
+				procName := filepath.Base(loopData.Settings.PathToExecutable)
+
+				var hnd config.Handler
+				for j := 0; j < len(loopData.Settings.Handlers); j++ {
+					if loopData.Settings.Handlers[j].Method == l.CurrentMessage.Path {
+						hnd = loopData.Settings.Handlers[j]
+						break
+					}
+				}
+
+				if err := l.Trace.Start(procName, hnd); err != nil {
+					l.Logger.LogError(err.Error())
+				}
 			}
 
 			for i := l.CurrentMessage.Energy; i != 0; i-- {
-				mutMsg, err := mutMgr.DoSingleMessageMutation(l.CurrentMessage.Descriptor, message)
+				mutMsg, err := mutMgr.DoMutation(l.CurrentMessage.Descriptor, message)
 				if err != nil {
+					l.Logger.LogError(err.Error())
 					break
 				}
 
@@ -271,29 +318,29 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 				l.Status.TotalExec += 1
 
 				if rErr != nil {
+					l.Logger.LogError(err.Error())
 					l.handleIterationErr(rErr)
 				}
 
-				cov, err := l.Trace.GetCoverage()
-				if err != nil {
-					//log.Println(err, "Failed to get fuzzed message coverage!")
+				if loopData.Settings.UseInstrumentation {
+					cov, err := l.Trace.GetCoverage()
+					if err != nil {
+						l.Logger.LogError(err.Error())
+					}
+
+					l.processCoverageAndAppendMsg(cov)
+					if err := l.Trace.ClearCoverage(); err != nil {
+						l.Logger.LogError(err.Error())
+					}
 				}
 
-				// t, err := l.Trace.GetLastExecTime()
-				// if err != nil {
-				// 	log.Println(err, "Failed to get fuzzed message execution time!")
-				// }
-
-				if err := l.Trace.ClearCoverage(); err != nil {
-					//log.Println("Failed to clear coverage information. Next run coverage may contain garbage data!")
-				}
-
-				l.processCoverageAndAppendMsg(cov)
 				l.sendUIUpdate()
 			}
 
-			if err := l.Trace.Unload(); err != nil {
-				//log.Println(err, "Failed to unload script")
+			if loopData.Settings.UseInstrumentation {
+				if err := l.Trace.Unload(); err != nil {
+					l.Logger.LogError(err.Error())
+				}
 			}
 
 			l.sendUIUpdate()
@@ -368,11 +415,14 @@ func (l *Loop) processCoverageAndAppendMsg(cov []trace.CoverageBlock) {
 }
 
 func (l *Loop) Stop() {
-	if err := l.Trace.Unload(); err != nil {
-		log.Println(err, "Failed to unload script!")
-	}
-	if err := l.Trace.Stop(); err != nil {
-		log.Println(err, "Failed to stop tracing session!")
+	loopData := l.Context.Value("data").(models.ContextData)
+	if loopData.Settings.UseInstrumentation {
+		if err := l.Trace.Unload(); err != nil {
+			l.Logger.LogError(err.Error())
+		}
+		if err := l.Trace.Stop(); err != nil {
+			l.Logger.LogError(err.Error())
+		}
 	}
 	l.Events.StopCapture()
 }
@@ -513,14 +563,15 @@ func (l *Loop) initializeLoop() {
 		loopData.Settings.ProtoFilesIncludePath)
 
 	if len(messages) == 0 {
-		log.Fatal("No messages were processed! Bailing out...")
+		l.Logger.LogError("No messages were processed! Bailing out...")
+		os.Exit(1)
 	}
 
 	if loopData.Settings.DoDependencyUnawareSending {
 		l.prepareMessages(messages)
 
 		if err := l.calculateMessagesEnergy(); err != nil {
-			log.Printf("Error occured while initializing the Loop: %s", err)
+			l.Logger.LogError(err.Error())
 		}
 	} else {
 		l.MsgDeps, l.MsgDepMap = packet.CalculateRelationMatrix(messages)
@@ -528,21 +579,23 @@ func (l *Loop) initializeLoop() {
 		l.prepareMessageChains(messages)
 
 		if err := l.calculateMessageChainEnergy(); err != nil {
-			log.Printf("Error occured while initializing the Loop: %s", err)
+			l.Logger.LogError(err.Error())
 		}
 	}
 
 	if err := l.Events.NewEventManager(events.DefaultWindowsQuery); err != nil {
-		log.Printf("Error occured while initializing the Loop: %s", err)
+		l.Logger.LogError(err.Error())
 	}
 
+	//l.Trace.Cleanup() // Clean and free any existing Frida objects before creating new instance
 	l.Events.StartCapture()
-	//go l.handleProcessStart()
+	go l.handleProcessStart()
 
 	if loopData.Settings.DryRun {
-		log.Println("Performing a dry run before starting a fuzzing process...")
+		l.Logger.LogInfo("Performing a dry run before starting a fuzzing process...")
 		if err := l.performDryRun(); err != nil {
-			log.Fatal("Dry run enabled and the process failed to respond to the valid message! Bailing out")
+			l.Logger.LogError("Dry run enabled and the process failed to respond to the valid message! Bailing out")
+			os.Exit(1)
 		}
 	}
 }
@@ -664,7 +717,7 @@ func (l *Loop) calculateMessageChainEnergy() error {
 	timeArr = make([]int, len(l.MessageChains))
 	covLenArr = make([]int, len(l.MessageChains))
 	fCountArr = make([]int, len(l.MessageChains))
-	//go l.handleProcessStartWithoutReporting()
+	go l.handleProcessStartWithoutReporting()
 
 	for i := 0; i < len(l.MessageChains); i++ {
 		var hnd config.Handler
@@ -675,13 +728,13 @@ func (l *Loop) calculateMessageChainEnergy() error {
 			}
 		}
 
-		// ticker := time.NewTicker(1 * time.Second)
-		// for range ticker.C {
-		// 	if watcher.IsProcessRunning(l.Context) {
-		// 		break
-		// 	}
-		// }
-		// ticker.Stop()
+		ticker := time.NewTicker(1 * time.Second)
+		for range ticker.C {
+			if watcher.IsProcessRunning(l.Context) {
+				break
+			}
+		}
+		ticker.Stop()
 
 		tExec, cov, _ := l.getMesasageChainEnergyData(l.MessageChains[i], hnd)
 		l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Coverage = append(l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Coverage, cov...)
@@ -791,7 +844,7 @@ func (l *Loop) handleProcessStart() {
 		if loopData.Settings.PerformMemoryDump {
 			dumpPath, err = l.MemDump.StartDump()
 			if err != nil {
-				log.Printf("Failed to start the memory dump for the process: %s", err)
+				l.Logger.LogError(err.Error())
 			}
 		}
 
@@ -802,17 +855,17 @@ func (l *Loop) handleProcessStart() {
 				done = true
 			case response := <-startProgStatus:
 				if response != nil && response.Error != nil {
-					fmt.Println(response.Output)
-					//("Error occurred while starting the process: %s", response.Error)
+					l.Logger.LogError(response.Error.Error())
 					done = true
 				}
-				if response != nil && response.Error == nil && len(response.Output) > 0 && response.Output != "EXIT" {
+				if response != nil && response.Error == nil && len(response.Output) > 0 && response.Output != "EXIT" && l.CurrentMessage != nil {
 					l.Status.LastCrashTime = time.Now()
 					l.Status.UniqueCrashCount += 1 //TODO: it's unique crash count, so we need to calculate how many UNIQUE crashes occured
 					l.writeIterationCrash(response.Output, dumpPath, *l.CurrentMessage.Message)
 					done = true
 				}
-				if response != nil && response.Error == nil && response.Output == "EXIT" {
+				if response != nil && response.Error == nil && response.Output == "EXIT" && l.CurrentMessage != nil {
+					// TODO: something is wrong, need to check
 					l.Status.LastCrashTime = time.Now()
 					l.Status.UniqueCrashCount += 1 //TODO: it's unique crash count, so we need to calculate how many UNIQUE crashes occured
 					l.writeIterationCrash("", dumpPath, *l.CurrentMessage.Message)
@@ -836,7 +889,7 @@ func (l *Loop) handleProcessStartWithoutReporting() {
 				done = true
 			case response := <-startProgStatus:
 				if response != nil && response.Error != nil {
-					log.Printf("Error occurred while starting the process: %s", response.Error)
+					l.Logger.LogError(response.Error.Error())
 					done = true
 				}
 				if response != nil && response.Error == nil && len(response.Output) > 0 && response.Output != "EXIT" {
@@ -869,19 +922,25 @@ func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath, lastMessage st
 		crashOutput.ModuleName = methodHandler.Module
 		crashOutput.FaultFunction = methodHandler.HandlerName
 	}
-	// TODO: This only performs check in the error output, not event logs, so this also can be a posibility
-	crashOutput.ErrorCode = watcher.ParseErrorCode(processOutput)
-	crashOutput.CrashMessage = watcher.ExplainErrorCode(crashOutput.ErrorCode)
+
+	if len(processOutput) > 0 {
+		crashOutput.ErrorCode = watcher.ParseErrorCode(processOutput)
+		crashOutput.ErrorCause = watcher.ExplainErrorCode(crashOutput.ErrorCode)
+	} else {
+		if len(events) > 0 {
+			crashOutput.ErrorCode = watcher.ParseErrorCode(events[0])
+			crashOutput.ErrorCause = watcher.ExplainErrorCode(crashOutput.ErrorCode)
+		}
+	}
 
 	if err := l.Output.SaveCrash(&crashOutput); err != nil {
-		log.Printf("Failed to write iteration crash dump with error: %s", err)
+		l.Logger.LogError(err.Error())
 	}
 }
 
 func (l *Loop) handleIterationErr(err error) {
 	convertedErr := util.ConvertError(err)
 	if convertedErr == models.NetworkError {
-		//log.Printf("gRPC request failed with error: %s", err)
 		if !watcher.IsProcessRunning(l.Context) {
 			go l.handleProcessStart()
 
