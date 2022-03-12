@@ -4,3 +4,4 @@ config.json
 procdump64.exe
 cmd/frida_shared.dll
 cmd/frida_shared_old.dll
+cmd/log.txt

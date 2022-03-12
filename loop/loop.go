@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"time"
 
@@ -54,15 +55,10 @@ func NewLoop(ctx context.Context) *Loop {
 	var logger *util.Log = util.NewLogger("log.txt")
 	logger.LogInfo("Logger was initialized!")
 
-	var traceManager *trace.Trace
-	var tmError error
-
-	if ctxData.Settings.UseInstrumentation {
-		traceManager, tmError = trace.NewTraceManager()
-		if tmError != nil {
-			logger.LogError("Failed to initialize tracing manager!")
-			os.Exit(1)
-		}
+	traceManager, tmError := trace.NewTraceManager()
+	if tmError != nil {
+		logger.LogError("Failed to initialize tracing manager!")
+		os.Exit(1)
 	}
 
 	if ctxData.Settings.PerformMemoryDump {
@@ -257,13 +253,15 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 		default:
 			l.Status.IterationNo = idx + 1
 			l.CurrentMessage = &message
-			mutMgr := new(mutator.MutatorManager)
+			//mutMgr := new(mutator.MutatorManager)
 
 			var mutStrategy mutator.MutationStrategy
 			if loopData.Settings.DoSingleFieldMutation {
 				mutStrategy = mutator.SingleField
+			} else {
+				mutStrategy = mutator.WholeMessage
 			}
-			mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{}, mutStrategy)
+			//mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{}, mutStrategy)
 
 			if len(*l.CurrentMessage.Message) == 0 {
 				continue
@@ -276,10 +274,12 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 			}
 			message := dynamic.NewMessage(l.CurrentMessage.Descriptor)
 			if err := message.Unmarshal(buf); err != nil {
+				buf = nil
 				l.Logger.LogError(err.Error())
 				continue
 			}
 
+			buf = nil
 			ticker := time.NewTicker(1 * time.Second)
 			for range ticker.C {
 				if watcher.IsProcessRunning(l.Context) {
@@ -305,8 +305,12 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 			}
 
 			for i := l.CurrentMessage.Energy; i != 0; i-- {
+				mutMgr := new(mutator.MutatorManager)
+				mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{}, mutStrategy)
+
 				mutMsg, err := mutMgr.DoMutation(l.CurrentMessage.Descriptor, message)
 				if err != nil {
+					message = nil
 					l.Logger.LogError(err.Error())
 					break
 				}
@@ -318,7 +322,7 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 				l.Status.TotalExec += 1
 
 				if rErr != nil {
-					l.Logger.LogError(err.Error())
+					l.Logger.LogError(rErr.Error())
 					l.handleIterationErr(rErr)
 				}
 
@@ -335,6 +339,8 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 				}
 
 				l.sendUIUpdate()
+				runtime.GC()
+				mutMgr = nil
 			}
 
 			if loopData.Settings.UseInstrumentation {

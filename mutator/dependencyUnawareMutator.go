@@ -21,7 +21,7 @@ var (
 		-math.MaxFloat64, -math.SmallestNonzeroFloat64, 0.0,
 		math.Nextafter(1, 2) - 1, -(math.Nextafter(1, 2) - 1),
 		math.Inf(1), math.Inf(-1), math.NaN(), -math.NaN()}
-	interestingInt32  = []int32{math.MaxInt32, math.MinInt32, 0, math.MaxInt16, math.MinInt16}
+	interestingInt32  = []int32{math.MaxInt32, math.MinInt32, math.MaxInt8, math.MinInt8, 0, math.MaxInt16, math.MinInt16}
 	interestingInt64  = []int64{math.MaxInt64, math.MinInt64, 0, math.MaxInt32, math.MinInt32}
 	interestingUint32 = []uint32{math.MaxUint32, 0, math.MaxUint16}
 	interestingUint64 = []uint64{math.MaxUint64, 0, math.MaxUint32}
@@ -153,7 +153,7 @@ func mutateString(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Ran
 	}
 
 	newVal := strings.Repeat(strVal, cNum)
-	if len(newVal) > int(math.Pow(2, 32)) { // 2^32 is the max protobuf string length
+	if len(newVal) > int(math.Pow(2, 29)) { // 2^32 is the max protobuf string length
 		if err := msg.TryClearField(fd); err != nil {
 			return errors.WithMessage(err, "Failed to clear string field value")
 		}
@@ -175,7 +175,7 @@ func mutateBool(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand)
 
 func mutateFloat(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
 	// float in protobuf equal to the float32 in Go
-	floatVal := interestingFloat32[rand.Intn(len(interestingFloat32)-1)]
+	floatVal := interestingFloat32[rand.Intn(len(interestingFloat32))]
 	if err := msg.TrySetField(fd, floatVal); err != nil {
 		return errors.WithMessage(err, "Failed to change float field value")
 	}
@@ -184,7 +184,7 @@ func mutateFloat(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand
 
 func mutateDouble(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
 	// double in protobuf equal to the float64 in Go
-	doubleVal := interestingFloat64[rand.Intn(len(interestingFloat64)-1)]
+	doubleVal := interestingFloat64[rand.Intn(len(interestingFloat64))]
 	if err := msg.TrySetField(fd, doubleVal); err != nil {
 		return errors.WithMessage(err, "Failed to change double field value")
 	}
@@ -192,7 +192,7 @@ func mutateDouble(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Ran
 }
 
 func mutateInt32(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
-	intVal := interestingInt32[rand.Intn(len(interestingInt32)-1)]
+	intVal := interestingInt32[rand.Intn(len(interestingInt32))]
 	if err := msg.TrySetField(fd, intVal); err != nil {
 		return errors.WithMessage(err, "Failed to change Int32 field value")
 	}
@@ -200,7 +200,7 @@ func mutateInt32(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand
 }
 
 func mutateInt64(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
-	intVal := interestingInt64[rand.Intn(len(interestingInt64)-1)]
+	intVal := interestingInt64[rand.Intn(len(interestingInt64))]
 	if err := msg.TrySetField(fd, intVal); err != nil {
 		return errors.WithMessage(err, "Failed to change Int64 field value")
 	}
@@ -208,7 +208,7 @@ func mutateInt64(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand
 }
 
 func mutateUint32(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
-	intVal := interestingUint32[rand.Intn(len(interestingUint32)-1)]
+	intVal := interestingUint32[rand.Intn(len(interestingUint32))]
 	if err := msg.TrySetField(fd, intVal); err != nil {
 		return errors.WithMessage(err, "Failed to change uint32 field value")
 	}
@@ -216,7 +216,7 @@ func mutateUint32(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Ran
 }
 
 func mutateUint64(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
-	intVal := interestingUint64[rand.Intn(len(interestingUint64)-1)]
+	intVal := interestingUint64[rand.Intn(len(interestingUint64))]
 	if err := msg.TrySetField(fd, intVal); err != nil {
 		return errors.WithMessage(err, "Failed to change uint64 field value")
 	}
@@ -231,15 +231,22 @@ func mutateBytes(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand
 	}
 
 	newVal := bytes.Repeat(byteVal, cNum)
-	if len(newVal) > int(math.Pow(2, 32)) { // 2^32 is the max protobuf bytes length
+	if len(newVal) > int(math.Pow(2, 29)) { // 2^32 is the max protobuf bytes length
 		if err := msg.TryClearField(fd); err != nil {
 			return errors.WithMessage(err, "Failed to clear bytes field value")
+		}
+		defVal := []byte{1}
+		if err := msg.TrySetField(fd, defVal); err != nil {
+			return errors.WithMessage(err, "Failed to change bytes field value")
 		}
 		return nil
 	}
 	if err := msg.TrySetField(fd, newVal); err != nil {
 		return errors.WithMessage(err, "Failed to change bytes field value")
 	}
+
+	newVal = newVal[:0]
+	byteVal = byteVal[:0]
 	return nil
 }
 
