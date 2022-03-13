@@ -147,22 +147,17 @@ func (f *rawRequestParser) Next(m proto.Message) error {
 		return f.err
 	}
 
-	var s string
-	s, f.err = f.r.ReadString(textSeparatorChar)
-	if f.err != nil && f.err != io.EOF {
-		return f.err
-	}
-
 	var b []byte
-	b, f.err = hex.DecodeString(s)
-	if f.err != nil {
+	b, f.err = f.r.ReadBytes(0)
+	if f.err != nil && f.err != io.EOF {
 		return f.err
 	}
 
 	f.requestCount++
 	f.err = io.EOF
 
-	return proto.Unmarshal(b, m)
+	err := proto.Unmarshal(b, m)
+	return err
 }
 
 func (f *rawRequestParser) NumRequests() int {

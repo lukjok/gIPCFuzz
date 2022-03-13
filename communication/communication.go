@@ -1,11 +1,11 @@
 package communication
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -158,7 +158,7 @@ func SendRequestWithMessage(request GIPCRequest) (proto.Message, error) {
 		cc = dial()
 	}
 
-	var in io.Reader = strings.NewReader(*request.Data)
+	var in io.Reader = bytes.NewReader(request.Data)
 	var response *proto.Message = new(proto.Message)
 
 	rf, _, err := ProtoMessageRequestParserAndFormatter(in)

@@ -140,7 +140,6 @@ func (h *httpStream) run() {
 		if err == io.EOF {
 			return
 		} else if err != nil {
-			//log.Print("Error reading frame", h.net, h.transport, ":", err)
 			continue
 		}
 
@@ -156,7 +155,6 @@ func (h *httpStream) run() {
 		}
 
 		if err != nil {
-			//log.Print("Error reading frame", h.net, h.transport, ":", err)
 			continue
 		}
 
@@ -165,7 +163,6 @@ func (h *httpStream) run() {
 		case *http2.MetaHeadersFrame:
 			for _, hf := range frame.Fields {
 				if hf.Name == ":path" {
-					// TODO: remove stale stream ID
 					pathLock.Lock()
 					_, ok := streamPath[net]
 					if !ok {

@@ -2,7 +2,6 @@ package mutator
 
 import (
 	"bytes"
-	"encoding/hex"
 	"math"
 	"math/rand"
 	"strings"
@@ -28,9 +27,11 @@ var (
 )
 
 type DefaultDependencyUnawareMut struct {
+	origMsgSize int
+	cMsgSize    int
 }
 
-func (m *DefaultDependencyUnawareMut) MutateField(dsc *desc.MessageDescriptor, msg *dynamic.Message, ignoredFd []string, rand *rand.Rand) (string, error) {
+func (m *DefaultDependencyUnawareMut) MutateField(dsc *desc.MessageDescriptor, msg *dynamic.Message, msgBuf *[]byte, ignoredFd []string, maxMsgSize int, rand *rand.Rand) error {
 	fields := dsc.GetFields()
 	fieldCount := len(fields)
 	mutFieldIdx := rand.Intn(fieldCount)
@@ -46,45 +47,51 @@ func (m *DefaultDependencyUnawareMut) MutateField(dsc *desc.MessageDescriptor, m
 
 	// If no valid field was found, return not changed message
 	if isFieldIgnored(ignoredFd, fields[mutFieldIdx]) {
-		mMsg, err := msg.Marshal()
+		buf, err := msg.Marshal()
+		*msgBuf = buf[:]
+
 		if err != nil {
-			return "", errors.WithMessage(err, "Failed to marshal the mutated message!")
+			return errors.WithMessage(err, "Failed to marshal the mutated message!")
 		}
 
-		return hex.EncodeToString(mMsg), nil
+		return nil
 	}
 
-	if err := mutateField(fields[mutFieldIdx], msg, rand); err != nil {
-		return "", err
+	if err := mutateField(fields[mutFieldIdx], msg, len(*msgBuf), maxMsgSize, rand); err != nil {
+		return err
 	}
 
-	mMsg, err := msg.Marshal()
+	buf, err := msg.Marshal()
+	*msgBuf = buf[:]
 	if err != nil {
-		return "", errors.WithMessage(err, "Failed to marshal the mutated message!")
+		return errors.WithMessage(err, "Failed to marshal the mutated message!")
 	}
 
-	return hex.EncodeToString(mMsg), nil
+	return nil
 }
 
-func (m *DefaultDependencyUnawareMut) MutateMessage(dsc *desc.MessageDescriptor, msg *dynamic.Message, ignoredFd []string, rand *rand.Rand) (string, error) {
+func (m *DefaultDependencyUnawareMut) MutateMessage(dsc *desc.MessageDescriptor, msg *dynamic.Message, msgBuf *[]byte, ignoredFd []string, maxMsgSize int, rand *rand.Rand) error {
 	fields := dsc.GetFields()
+	m.origMsgSize = len(*msgBuf)
+	m.cMsgSize = len(*msgBuf)
 
 	for _, field := range fields {
 		if isFieldIgnored(ignoredFd, field) {
 			continue
 		}
 
-		if err := mutateField(field, msg, rand); err != nil {
-			return "", err
+		if err := mutateField(field, msg, len(*msgBuf), maxMsgSize, rand); err != nil {
+			return err
 		}
 	}
 
-	mMsg, err := msg.Marshal()
+	buf, err := msg.Marshal()
+	*msgBuf = buf[:]
 	if err != nil {
-		return "", errors.WithMessage(err, "Failed to marshal the mutated message!")
+		return errors.WithMessage(err, "Failed to marshal the mutated message!")
 	}
 
-	return hex.EncodeToString(mMsg), nil
+	return nil
 }
 
 func isFieldIgnored(ignoredFd []string, fd *desc.FieldDescriptor) bool {
@@ -94,18 +101,18 @@ func isFieldIgnored(ignoredFd []string, fd *desc.FieldDescriptor) bool {
 	return false
 }
 
-func mutateField(field *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
+func mutateField(field *desc.FieldDescriptor, msg *dynamic.Message, cMsgSize, maxMsgSize int, rand *rand.Rand) error {
 	switch field.GetType() {
 	case descriptorpb.FieldDescriptorProto_TYPE_BOOL:
 		if err := mutateBool(field, msg, rand); err != nil {
 			return errors.WithMessage(err, "MutateMessage failed")
 		}
 	case descriptorpb.FieldDescriptorProto_TYPE_STRING:
-		if err := mutateString(field, msg, rand); err != nil {
+		if err := mutateString(field, msg, cMsgSize, maxMsgSize, rand); err != nil {
 			return errors.WithMessage(err, "MutateMessage failed")
 		}
 	case descriptorpb.FieldDescriptorProto_TYPE_BYTES:
-		if err := mutateBytes(field, msg, rand); err != nil {
+		if err := mutateBytes(field, msg, cMsgSize, maxMsgSize, rand); err != nil {
 			return errors.WithMessage(err, "MutateMessage failed")
 		}
 	case descriptorpb.FieldDescriptorProto_TYPE_FLOAT:
@@ -145,15 +152,45 @@ func mutateField(field *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.R
 	return nil
 }
 
-func mutateString(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
+func mutateString(fd *desc.FieldDescriptor, msg *dynamic.Message, cMsgSize, maxMsgSize int, rand *rand.Rand) error {
+	// Available message size to do message mutations
+	aMsgSize := maxMsgSize - cMsgSize
 	strVal := msg.GetField(fd).(string)
 	cNum := rand.Intn(10)
 	if cNum == 0 {
 		cNum += 1
 	}
 
+	// Predicted new field size after mutation
+	pMsgSize := len(strVal) * cNum
+	ncNum := cNum
+	// If predicted size is bigger, try to calculate a size which will fit to the message
+	if pMsgSize > aMsgSize {
+		for i := cNum; i != 0; i-- {
+			if len(strVal)*i < aMsgSize {
+				ncNum = i
+				break
+			}
+		}
+
+		// If new size was not found, reset the field and set new value
+		if ncNum == cNum {
+			if err := msg.TryClearField(fd); err != nil {
+				return errors.WithMessage(err, "Failed to clear string field value")
+			}
+			defVal := "A"
+			if err := msg.TrySetField(fd, defVal); err != nil {
+				return errors.WithMessage(err, "Failed to change bytes field value")
+			}
+
+			return nil
+		}
+		cNum = ncNum
+	}
+
 	newVal := strings.Repeat(strVal, cNum)
-	if len(newVal) > int(math.Pow(2, 29)) { // 2^32 is the max protobuf string length
+
+	if len(newVal) > int(math.Pow(2, 32)) { // 2^32 is the max protobuf string length
 		if err := msg.TryClearField(fd); err != nil {
 			return errors.WithMessage(err, "Failed to clear string field value")
 		}
@@ -223,15 +260,45 @@ func mutateUint64(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Ran
 	return nil
 }
 
-func mutateBytes(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand) error {
+func mutateBytes(fd *desc.FieldDescriptor, msg *dynamic.Message, cMsgSize, maxMsgSize int, rand *rand.Rand) error {
+	// Available message size to do message mutations
+	aMsgSize := maxMsgSize - cMsgSize
 	byteVal := msg.GetField(fd).([]byte)
 	cNum := rand.Intn(10)
 	if cNum == 0 {
 		cNum += 1
 	}
 
+	// Predicted new field size after mutation
+	pMsgSize := len(byteVal) * cNum
+	ncNum := cNum
+	// If predicted size is bigger, try to calculate a size which will fit to the message
+	if pMsgSize > aMsgSize {
+		for i := cNum; i != 0; i-- {
+			if len(byteVal)*i < aMsgSize {
+				ncNum = i
+				break
+			}
+		}
+
+		// If new size was not found, reset the field and set new value
+		if ncNum == cNum {
+			if err := msg.TryClearField(fd); err != nil {
+				return errors.WithMessage(err, "Failed to clear string field value")
+			}
+			defVal := []byte{1}
+			if err := msg.TrySetField(fd, defVal); err != nil {
+				return errors.WithMessage(err, "Failed to change bytes field value")
+			}
+
+			return nil
+		}
+		cNum = ncNum
+	}
+
 	newVal := bytes.Repeat(byteVal, cNum)
-	if len(newVal) > int(math.Pow(2, 29)) { // 2^32 is the max protobuf bytes length
+
+	if len(newVal) > int(math.Pow(2, 32)) { // 2^32 is the max protobuf bytes length
 		if err := msg.TryClearField(fd); err != nil {
 			return errors.WithMessage(err, "Failed to clear bytes field value")
 		}

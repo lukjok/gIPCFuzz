@@ -117,23 +117,18 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 			if loopData.Settings.DoSingleFieldMutation {
 				mutStrategy = mutator.SingleField
 			}
-			mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{}, mutStrategy)
+			mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), int(loopData.Settings.MaxMsgSize), rSrc, []string{}, mutStrategy)
 
 			if len(mChain.Messages) == 1 {
 				continue
 			}
 
-			if len(*l.CurrentMessage.Message) == 0 {
+			if len(l.CurrentMessage.Message) == 0 {
 				continue
 			}
 
-			buf, err := hex.DecodeString(*l.CurrentMessage.Message)
-			if err != nil {
-				l.Logger.LogError(err.Error())
-				continue
-			}
 			message := dynamic.NewMessage(l.CurrentMessage.Descriptor)
-			if err := message.Unmarshal(buf); err != nil {
+			if err := message.Unmarshal(l.CurrentMessage.Message); err != nil {
 				l.Logger.LogError(err.Error())
 				continue
 			}
@@ -145,6 +140,7 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 				}
 			}
 			ticker.Stop()
+			ticker = nil
 
 			if len(mChain.Messages) > 1 {
 				// Send all messages in order before the last one
@@ -171,17 +167,12 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 			depMsgs := make([]dynamic.Message, 0, 1)
 			for i := 0; i < len(mChain.DepMessages); i++ {
 				// If bad dependent message appears, skip it (this should be a non existant case)
-				if len(*mChain.DepMessages[i].Message) == 0 {
+				if len(mChain.DepMessages[i].Message) == 0 {
 					continue
 				}
 
-				buf, err := hex.DecodeString(*mChain.DepMessages[i].Message)
-				if err != nil {
-					l.Logger.LogError(err.Error())
-					continue
-				}
 				message := dynamic.NewMessage(mChain.DepMessages[i].Descriptor)
-				if err := message.Unmarshal(buf); err != nil {
+				if err := message.Unmarshal(mChain.DepMessages[i].Message); err != nil {
 					l.Logger.LogError(err.Error())
 					continue
 				}
@@ -198,14 +189,13 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 					programCrashed = false
 				}
 
-				mutMsg, err := mutMgr.DoAwareMutation(l.CurrentMessage.Descriptor, message, l.ValueDeps, depMsgs)
+				err := mutMgr.DoAwareMutation(l.CurrentMessage.Descriptor, message, &l.CurrentMessage.Message, l.ValueDeps, depMsgs)
 				if err != nil {
 					l.Logger.LogError(err.Error())
 					break
 				}
 
-				l.CurrentMessage.Message = &mutMsg
-				_, rErr := l.runIterationWithData(l.CurrentMessage.Path, &mutMsg)
+				_, rErr := l.runIterationWithData(l.CurrentMessage.Path, l.CurrentMessage.Message)
 
 				l.Status.MsgProg = 100 - float64((100*i)/l.CurrentMessage.Energy)
 				l.Status.TotalExec += 1
@@ -263,23 +253,16 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 			}
 			//mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{}, mutStrategy)
 
-			if len(*l.CurrentMessage.Message) == 0 {
+			if len(l.CurrentMessage.Message) == 0 {
 				continue
 			}
 
-			buf, err := hex.DecodeString(*l.CurrentMessage.Message)
-			if err != nil {
-				l.Logger.LogError(err.Error())
-				continue
-			}
 			message := dynamic.NewMessage(l.CurrentMessage.Descriptor)
-			if err := message.Unmarshal(buf); err != nil {
-				buf = nil
+			if err := message.Unmarshal(l.CurrentMessage.Message); err != nil {
 				l.Logger.LogError(err.Error())
 				continue
 			}
 
-			buf = nil
 			ticker := time.NewTicker(1 * time.Second)
 			for range ticker.C {
 				if watcher.IsProcessRunning(l.Context) {
@@ -287,6 +270,7 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 				}
 			}
 			ticker.Stop()
+			ticker = nil
 
 			if loopData.Settings.UseInstrumentation {
 				procName := filepath.Base(loopData.Settings.PathToExecutable)
@@ -306,17 +290,16 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 
 			for i := l.CurrentMessage.Energy; i != 0; i-- {
 				mutMgr := new(mutator.MutatorManager)
-				mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), rSrc, []string{}, mutStrategy)
+				mutMgr.New(new(mutator.DefaultDependencyUnawareMut), new(mutator.DefaultDependencyAwareMut), int(loopData.Settings.MaxMsgSize), rSrc, []string{}, mutStrategy)
 
-				mutMsg, err := mutMgr.DoMutation(l.CurrentMessage.Descriptor, message)
+				err := mutMgr.DoMutation(l.CurrentMessage.Descriptor, message, &l.CurrentMessage.Message)
 				if err != nil {
 					message = nil
 					l.Logger.LogError(err.Error())
 					break
 				}
 
-				l.CurrentMessage.Message = &mutMsg
-				_, rErr := l.runIterationWithData(l.CurrentMessage.Path, &mutMsg)
+				_, rErr := l.runIterationWithData(l.CurrentMessage.Path, l.CurrentMessage.Message)
 
 				l.Status.MsgProg = 100 - float64((100*i)/l.CurrentMessage.Energy)
 				l.Status.TotalExec += 1
@@ -442,7 +425,7 @@ func (l *Loop) sendFirstChainMessages(msgs []LoopMessage) error {
 	return nil
 }
 
-func (l *Loop) runIterationWithData(path string, data *string) (protoiface.MessageV1, error) {
+func (l *Loop) runIterationWithData(path string, data []byte) (protoiface.MessageV1, error) {
 	curIterData := l.Context.Value("data").(models.ContextData)
 	endpoint := fmt.Sprintf("%s:%d", curIterData.Settings.Host, curIterData.Settings.Port)
 	protoFiles := util.GetFileFullPathInDirectory(curIterData.Settings.ProtoFilesPath, []string{"Includes"})
@@ -458,7 +441,7 @@ func (l *Loop) runIterationWithData(path string, data *string) (protoiface.Messa
 	return communication.SendRequestWithMessage(req)
 }
 
-func (l *Loop) getMesasageEnergyData(path string, data *string) (int, []trace.CoverageBlock, error) {
+func (l *Loop) getMesasageEnergyData(path string, data []byte) (int, []trace.CoverageBlock, error) {
 	curIterData := l.Context.Value("data").(models.ContextData)
 	endpoint := fmt.Sprintf("%s:%d", curIterData.Settings.Host, curIterData.Settings.Port)
 	protoFiles := util.GetFileFullPathInDirectory(curIterData.Settings.ProtoFilesPath, []string{"Includes"})
@@ -643,9 +626,10 @@ func (l *Loop) prepareMessageChains(msgs []packet.ProtoByteMsg) {
 			lMsgs := make([]LoopMessage, 0, 1)
 			for k := 0; k < j+1; k++ {
 				if pbMsg := getMessageByPathName(msgs, rMsgChains[i][k]); pbMsg != nil {
+					msgBuf, _ := hex.DecodeString(*pbMsg.Message)
 					lMsgs = append(lMsgs, LoopMessage{
 						Path:       pbMsg.Path,
-						Message:    pbMsg.Message,
+						Message:    msgBuf,
 						Descriptor: pbMsg.Descriptor,
 						Energy:     0,
 						Coverage:   make([]trace.CoverageBlock, 0, 1),
@@ -664,9 +648,10 @@ func (l *Loop) prepareMessageChains(msgs []packet.ProtoByteMsg) {
 				}
 				if len(neededmsgName) > 0 {
 					if pbMsg := getMessageByPathNamesInOrder(msgs, neededmsgName, lastMsgName); pbMsg != nil {
+						msgBuf, _ := hex.DecodeString(*pbMsg.Message)
 						dMsgs = append(dMsgs, LoopMessage{
 							Path:       pbMsg.Path,
-							Message:    pbMsg.Message,
+							Message:    msgBuf,
 							Descriptor: pbMsg.Descriptor,
 							Energy:     0,
 							Coverage:   make([]trace.CoverageBlock, 0, 1),
@@ -706,9 +691,10 @@ func (l *Loop) prepareMessages(msgs []packet.ProtoByteMsg) {
 	uniqMsgs := packet.DistinctMessages(msgs)
 	l.Messages = make([]LoopMessage, 0, 1)
 	for _, msg := range uniqMsgs {
+		msgBuf, _ := hex.DecodeString(*msg.Message)
 		l.Messages = append(l.Messages, LoopMessage{
 			Path:       msg.Path,
-			Message:    msg.Message,
+			Message:    msgBuf,
 			Descriptor: msg.Descriptor,
 			Energy:     0,
 			Coverage:   make([]trace.CoverageBlock, 0, 1),
@@ -741,6 +727,7 @@ func (l *Loop) calculateMessageChainEnergy() error {
 			}
 		}
 		ticker.Stop()
+		ticker = nil
 
 		tExec, cov, _ := l.getMesasageChainEnergyData(l.MessageChains[i], hnd)
 		l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Coverage = append(l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Coverage, cov...)
@@ -799,6 +786,8 @@ func (l *Loop) calculateMessagesEnergy() error {
 			}
 		}
 		ticker.Stop()
+		ticker = nil
+
 		if err := l.Trace.Start(procName, hnd); err != nil {
 			return errors.WithMessage(err, "Failed to start tracing session for the energy calculation!")
 		}
@@ -867,14 +856,14 @@ func (l *Loop) handleProcessStart() {
 				if response != nil && response.Error == nil && len(response.Output) > 0 && response.Output != "EXIT" && l.CurrentMessage != nil {
 					l.Status.LastCrashTime = time.Now()
 					l.Status.UniqueCrashCount += 1 //TODO: it's unique crash count, so we need to calculate how many UNIQUE crashes occured
-					l.writeIterationCrash(response.Output, dumpPath, *l.CurrentMessage.Message)
+					l.writeIterationCrash(response.Output, dumpPath, l.CurrentMessage.Message)
 					done = true
 				}
 				if response != nil && response.Error == nil && response.Output == "EXIT" && l.CurrentMessage != nil {
 					// TODO: something is wrong, need to check
 					l.Status.LastCrashTime = time.Now()
 					l.Status.UniqueCrashCount += 1 //TODO: it's unique crash count, so we need to calculate how many UNIQUE crashes occured
-					l.writeIterationCrash("", dumpPath, *l.CurrentMessage.Message)
+					l.writeIterationCrash("", dumpPath, l.CurrentMessage.Message)
 					done = true
 				}
 			default:
@@ -910,7 +899,7 @@ func (l *Loop) handleProcessStartWithoutReporting() {
 	}
 }
 
-func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath, lastMessage string) {
+func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath string, lastMessage []byte) {
 	loopData := l.Context.Value("data").(models.ContextData)
 	events := l.Events.GetEventData()
 	crashOutput := output.CrashOutput{
@@ -922,7 +911,7 @@ func (l *Loop) writeIterationCrash(processOutput, memoryDumpPath, lastMessage st
 		ExecutableOutput: processOutput,
 		ExecutableEvents: events,
 		MemoryDumpPath:   memoryDumpPath,
-		CrashMessage:     lastMessage,
+		CrashMessage:     fmt.Sprintf("%x", lastMessage),
 	}
 	if methodHandler := util.GetMethodHandler(l.CurrentMessage.Path, loopData.Settings.Handlers); methodHandler != nil {
 		crashOutput.ModuleName = methodHandler.Module

@@ -12,7 +12,7 @@ type LoopMessage struct {
 	Descriptor *desc.MessageDescriptor
 	Coverage   []trace.CoverageBlock
 	Energy     int
-	Message    *string
+	Message    []byte
 }
 
 type LoopStatus struct {

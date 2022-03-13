@@ -17,6 +17,7 @@ type Configuration struct {
 	ProtoFilesPath             string    `json:"protoFilesPath"`
 	ProtoFilesIncludePath      []string  `json:"protoFilesIncludePath"`
 	PcapFilePath               string    `json:"pcapFilePath"`
+	MaxMsgSize                 int32     `json:"maxMsgSize"`
 }
 
 type Handler struct {

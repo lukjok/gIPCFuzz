@@ -1,7 +1,6 @@
 package mutator
 
 import (
-	"encoding/hex"
 	"math/rand"
 
 	"github.com/jhump/protoreflect/desc"
@@ -13,7 +12,7 @@ import (
 type DefaultDependencyAwareMut struct {
 }
 
-func (m *DefaultDependencyAwareMut) MutateField(dsc *desc.MessageDescriptor, msg *dynamic.Message, valDeps []packet.MsgValDep, depMsgs []dynamic.Message, rand *rand.Rand) (string, error) {
+func (m *DefaultDependencyAwareMut) MutateField(dsc *desc.MessageDescriptor, msg *dynamic.Message, msgBuf *[]byte, valDeps []packet.MsgValDep, depMsgs []dynamic.Message, maxMsgSize int, rand *rand.Rand) error {
 	fields := dsc.GetFields()
 	fieldCount := len(fields)
 	mutFieldIdx := rand.Intn(fieldCount)
@@ -50,27 +49,29 @@ func (m *DefaultDependencyAwareMut) MutateField(dsc *desc.MessageDescriptor, msg
 
 	// If no valid field was found, return not changed message
 	if isFieldIgnored(internalIgFields, fields[mutFieldIdx]) {
-		mMsg, err := msg.Marshal()
+		buf, err := msg.Marshal()
+		*msgBuf = buf[:]
 		if err != nil {
-			return "", errors.WithMessage(err, "Failed to marshal the mutated message!")
+			return errors.WithMessage(err, "Failed to marshal the mutated message!")
 		}
 
-		return hex.EncodeToString(mMsg), nil
+		return nil
 	}
 
-	if err := mutateField(fields[mutFieldIdx], msg, rand); err != nil {
-		return "", err
+	if err := mutateField(fields[mutFieldIdx], msg, len(*msgBuf), maxMsgSize, rand); err != nil {
+		return err
 	}
 
-	mMsg, err := msg.Marshal()
+	buf, err := msg.Marshal()
+	*msgBuf = buf[:]
 	if err != nil {
-		return "", errors.WithMessage(err, "Failed to marshal the mutated message!")
+		return errors.WithMessage(err, "Failed to marshal the mutated message!")
 	}
 
-	return hex.EncodeToString(mMsg), nil
+	return nil
 }
 
-func (m *DefaultDependencyAwareMut) MutateMessage(dsc *desc.MessageDescriptor, msg *dynamic.Message, valDeps []packet.MsgValDep, depMsgs []dynamic.Message, rand *rand.Rand) (string, error) {
+func (m *DefaultDependencyAwareMut) MutateMessage(dsc *desc.MessageDescriptor, msg *dynamic.Message, msgBuf *[]byte, valDeps []packet.MsgValDep, depMsgs []dynamic.Message, maxMsgSize int, rand *rand.Rand) error {
 	fields := dsc.GetFields()
 	msgName := dsc.GetName()
 	internalIgFields := make([]string, 0, 1)
@@ -99,15 +100,16 @@ func (m *DefaultDependencyAwareMut) MutateMessage(dsc *desc.MessageDescriptor, m
 			continue
 		}
 
-		if err := mutateField(field, msg, rand); err != nil {
-			return "", err
+		if err := mutateField(field, msg, len(*msgBuf), maxMsgSize, rand); err != nil {
+			return err
 		}
 	}
 
-	mMsg, err := msg.Marshal()
+	buf, err := msg.Marshal()
+	*msgBuf = buf[:]
 	if err != nil {
-		return "", errors.WithMessage(err, "Failed to marshal the mutated message!")
+		return errors.WithMessage(err, "Failed to marshal the mutated message!")
 	}
 
-	return hex.EncodeToString(mMsg), nil
+	return nil
 }
