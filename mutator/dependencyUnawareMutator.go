@@ -323,7 +323,7 @@ func mutateEnum(fd *desc.FieldDescriptor, msg *dynamic.Message, rand *rand.Rand)
 		return errors.Errorf("Cannot get type for enum %s", fd.GetName())
 	}
 	enumVals := enum.GetValues()
-	newEnumVal := enumVals[rand.Intn(len(enumVals)-1)].GetNumber()
+	newEnumVal := enumVals[rand.Intn(len(enumVals))].GetNumber()
 	if err := msg.TrySetField(fd, newEnumVal); err != nil {
 		return errors.WithMessage(err, "Failed to change enum field value")
 	}

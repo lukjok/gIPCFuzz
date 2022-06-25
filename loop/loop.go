@@ -98,6 +98,7 @@ func (l *Loop) Run() {
 	} else {
 		l.doDependencyAwareSending(rSrc)
 	}
+	l.Logger.LogInfo("Ending the run!")
 }
 
 func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
@@ -201,7 +202,8 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 				l.Status.TotalExec += 1
 
 				if rErr != nil {
-					l.Logger.LogError(err.Error())
+					l.Logger.LogInfo("Possible crash was detected!")
+					l.Logger.LogError(rErr.Error())
 					l.handleIterationErr(rErr)
 					programCrashed = true
 				}
@@ -230,6 +232,7 @@ func (l *Loop) doDependencyAwareSending(rSrc rand.Source) {
 			l.sendUIUpdate()
 		}
 	}
+	l.Logger.LogInfo("Ending dependency aware sending!")
 }
 
 func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
@@ -305,6 +308,7 @@ func (l *Loop) doDependencyUnawareSending(rSrc rand.Source) {
 				l.Status.TotalExec += 1
 
 				if rErr != nil {
+					l.Logger.LogInfo("Possible crash was detected!")
 					l.Logger.LogError(rErr.Error())
 					l.handleIterationErr(rErr)
 				}
@@ -748,6 +752,9 @@ func (l *Loop) calculateMessageChainEnergy() error {
 		l.MessageChains[i].Energy += covLenArr[i]
 		l.MessageChains[i].Energy += fCountArr[i]
 		l.MessageChains[i].Energy += timeArr[i]
+		if loopData.Settings.DoSingleFieldMutation {
+			l.MessageChains[i].Energy *= fCountArr[i]
+		}
 		l.MessageChains[i].Messages[len(l.MessageChains[i].Messages)-1].Energy = l.MessageChains[i].Energy
 	}
 
@@ -815,6 +822,9 @@ func (l *Loop) calculateMessagesEnergy() error {
 		l.Messages[i].Energy += covLenArr[i]
 		l.Messages[i].Energy += fCountArr[i]
 		l.Messages[i].Energy += timeArr[i]
+		if loopData.Settings.DoSingleFieldMutation {
+			l.Messages[i].Energy *= fCountArr[i]
+		}
 	}
 
 	sort.Slice(l.Messages, func(i, j int) bool {

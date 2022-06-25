@@ -32,10 +32,17 @@ func ParseErrorCode(output string) string {
 }
 
 func ExplainErrorCode(code string) string {
-	if strings.HasPrefix(strings.ToLower(code), "0xc") {
-		return memoryViolationError
+	for i := 0; i < len(bufferOverflowCodes); i++ {
+		if strings.ToLower(code) == bufferOverflowCodes[i] {
+			return bufferOverflowError
+		}
 	}
-	return denialOfServiceError
+	for i := 0; i < len(memoryCorruptionCodes); i++ {
+		if strings.ToLower(code) == memoryCorruptionCodes[i] {
+			return memoryCorruptionError
+		}
+	}
+	return unknownError
 }
 
 func IsProcessRunning(ctx context.Context) bool {
@@ -50,10 +57,7 @@ func KillProcess(ctx context.Context) {
 	ctxData := ctx.Value("data").(models.ContextData)
 	execName := filepath.Base(ctxData.Settings.PathToExecutable)
 
-	proc, err := getProcessByName(execName)
-	if err != nil {
-		//log.Printf("Failed to find process with name %s", execName)
-	}
+	proc, _ := getProcessByName(execName)
 	proc.Kill()
 }
 

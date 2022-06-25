@@ -1,7 +1,11 @@
 package watcher
 
-const memoryViolationError string = "Memory access violation"
-const denialOfServiceError string = "Denial of service"
+const bufferOverflowError string = "Buffer overflow"
+const memoryCorruptionError string = "Null-pointer dereference"
+const unknownError string = "Unknown error"
+
+var bufferOverflowCodes = [...]string{"0xc00000fd", "0xc0000409", "0xc0000374"}
+var memoryCorruptionCodes = [...]string{"0xc0000005"}
 
 // Process is the generic interface that is implemented on every platform
 // and provides common operations for processes.

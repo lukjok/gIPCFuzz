@@ -127,7 +127,7 @@ func (f *textRequestParser) NumRequests() int {
 }
 
 type rawRequestParser struct {
-	r            *bufio.Reader
+	r            *bufio.Scanner
 	err          error
 	requestCount int
 }
@@ -139,7 +139,7 @@ type rawRequestParser struct {
 // given reader has no data, the returned parser will yield an empty message
 // for the first call to Next and then return io.EOF thereafter.
 func NewRawRequestParser(in io.Reader) RequestParser {
-	return &rawRequestParser{r: bufio.NewReader(in)}
+	return &rawRequestParser{r: bufio.NewScanner(in)}
 }
 
 func (f *rawRequestParser) Next(m proto.Message) error {
@@ -147,8 +147,16 @@ func (f *rawRequestParser) Next(m proto.Message) error {
 		return f.err
 	}
 
+	buffer := make([]byte, 0, 4194304)
 	var b []byte
-	b, f.err = f.r.ReadBytes(0)
+
+	f.r.Split(ScanBytes)
+	f.r.Buffer(buffer, 4194304)
+
+	for f.r.Scan() {
+		b = f.r.Bytes()
+	}
+	f.err = f.r.Err()
 	if f.err != nil && f.err != io.EOF {
 		return f.err
 	}
@@ -158,6 +166,18 @@ func (f *rawRequestParser) Next(m proto.Message) error {
 
 	err := proto.Unmarshal(b, m)
 	return err
+}
+
+func ScanBytes(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	// If we're at EOF, we have a final, non-terminated line. Return it.
+	if atEOF {
+		return len(data), data, nil
+	}
+	// Request more data.
+	return 0, nil, nil
 }
 
 func (f *rawRequestParser) NumRequests() int {
