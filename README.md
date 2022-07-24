@@ -1,6 +1,6 @@
 # gIPCFuzz
 
-A greybox coverage feedback-based gRPC IPC fuzzer for desktop applications. I wrote this fuzzer from scrach for my master's thesis because why not. This is a prototype and it is not stable yet.
+A grey box coverage feedback-based gRPC IPC fuzzer for desktop applications. I wrote this fuzzer from scratch for my master's thesis because why not. This is a prototype and it is not stable yet.
 
 ## How it works
 
@@ -53,34 +53,34 @@ The fuzzer can send messages in two ways:
 * Send single messages
 * Send message chains
 
-Sending single message is pretty straight-forward. On the other hand, sending message chains are little bit more complex. Let's say there is a vulnerable function f3. This function depends on the other functions f1 and f2 results. You cannot fuzz f3 directly because the fuzzed application will reject the messages to this function. That's why this functionality was introduced. 
+Sending a single message is pretty straightforward. On the other hand, sending message chains is a little bit more complex. Let's say there is a vulnerable function f3. This function depends on the other function's f1 and f2 results. You cannot fuzz f3 directly because the fuzzed application will reject the messages to this function. That's why this functionality was introduced. 
 
-Message chain sending involves calculating probabilities in what order multiple messages are being sent. After that, algorithm tries to recognize message and message field dependencies by matching message field names and types. All this information is combined to make all possible message chains. However only the last message of the chain is fuzzed. Other remaining messsages needed to get fuzzed application to the required state before reaching vulnerable state.
+Message chain sending involves calculating probabilities in what order multiple messages are being sent. After that, the algorithm tries to recognize the message and message field dependencies by matching message field names and types. All this information is combined to make all possible message chains. However, only the last message of the chain is fuzzed. Other remaining messages needed to get a fuzzed application to the required state before reaching a vulnerable state.
 
 ### Coverage feedback
 
-In order to obtain application fuzzed code coverage, Frida dynamic instrumentation library was used. Fuzzer is using Frida's Interceptor and Stalker functionality to gather the basic executed instruction blocks. The blocks are being collected after executing the fuzzed gRPC handler function. After that, fuzzer tries to compare current recorded execution blocks with the new ones and if the difference is present, currently fuzzed message (message chain) is added to the fuzzer message (message chain) queue.
+To obtain application fuzzed code coverage, Frida dynamic instrumentation library was used. Fuzzer is using Frida's Interceptor and Stalker functionality to gather the basic executed instruction blocks. The blocks are being collected after executing the fuzzed gRPC handler function. After that, the fuzzer tries to compare the currently recorded execution blocks with the new ones and if the difference is present, the currently fuzzed message (message chain) is added to the fuzzer message (message chain) queue.
 
 ![gIPCFuzz Frida usage](/images/frida.png)
 
 ### Message fuzzing cycles number calculation
 
-Before the start of the fuzzing, fuzzer will calculate the probable fuzzing cycles number for the each message in the queue. This is being done because while fuzzing some messages might be more interesting than others. This is decided on these criterias:
+Before the start of the fuzzing, the fuzzer will calculate the probable fuzzing cycle number for each message in the queue. This is being done because while fuzzing some messages might be more interesting than others. This is decided on these criteria:
 * Message field count
 * Application execution time while processing the message
 * The number of executed basic instruction blocks while processing the message
 
-The number of maximum cycles that message can be fuzzed is calculated based on these criterias. Then the message queue is ordered to prioretize messages with the biggest cycle number. Calculations are performed with initial messages so some inconsistencies might occur if application behaves differently based on the message content.
+The number of maximum cycles that the message can be fuzzed is calculated based on these criteria. Then the message queue is ordered to prioritize messages with the biggest cycle number. Calculations are performed with initial messages so some inconsistencies might occur if the application behaves differently based on the message content.
 
 ### Crash detection and corpus generation
 
-Fuzzed application crashed are being detected when gRPC sending routines throws errors about unreachable fuzzing target. In addition to this, when fuzzed application crashes, the crash is handled by the fuzzer. After the crash, fuzzer collect fuzzed application events from the OS Event Log and tries to get the stack-trace of the application.
+Fuzzed application crashes are being detected when gRPC sending routines throw errors about unreachable fuzzing targets. In addition to this, when the fuzzed application crashes, the crash is handled by the fuzzer. After the crash, the fuzzer collect fuzzed application events from the OS Event Log and tries to get the stack trace of the application.
 
-Currently fuzzer can recognize two types of vulnerabilities: buffer overflow and null-pointer dereference vulnerabilites. This is done by checking the fuzzed application error code from the event log. This is not very convienient solution since not all error codes mean the exact vulnerability. It can definitely be improved in the future.
+Currently, fuzzer can recognize two types of vulnerabilities: buffer overflow and null-pointer dereference vulnerabilities. This is done by checking the fuzzed application error code from the event log. This is not a very convenient solution since not all error codes mean the exact vulnerability. It can be improved in the future.
 
-In addition to this, fuzzer can also use Sysinternals ProcDump tool to generate a memory dump file of the fuzzed process. This can be used in the further triaging process.
+In addition to this, the fuzzer can also use the Sysinternals ProcDump tool to generate a memory dump file of the fuzzed process. This can be used in the further triaging process.
 
-In the end, all the required information about the crash is saved in the JSON file. The exaple is provided below:
+In the end, all the required information about the crash is saved in the JSON file. The example is provided below:
 ```
 {
 	"errorCode": "0xc0000005",
@@ -99,12 +99,12 @@ In the end, all the required information about the crash is saved in the JSON fi
 
 ### Current limitations
 * Available only on Windows OS
-* Frida feedback-coverage is very unstable (frequent crashes)
+* Frida feedback coverage is very unstable (frequent crashes)
 * You cannot fuzz Golang binaries
 * Fuzzer logic is pretty basic
 
 ### TODO
 * Needs heavy refactoring and code cleaning
 * Make it platform independent
-* Replace Frida with other intrumentation
+* Replace Frida with other instrumentation
 * ...
